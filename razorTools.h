@@ -49,6 +49,12 @@
 
 /*-----------------------------------------------------------------*/
 
+	// streaming mode could be single or continous
+	enum oFormat {text, binary};
+	typedef enum oFormat outputFormat;
+
+/*-----------------------------------------------------------------*/
+
     /* measuring elapsed time:
 	 * During synchronization we need to check the time. Ones to know,
 	 * when we have to send a new request to the tracker/board, second 

@@ -308,7 +308,7 @@ int main(int argc,char** argv)
 	printf("\n    RAZOR AHRS – Headtracker Reader\n");
 	printf("_________________________________________________\r\n\n");
 	
-	razorAHRS(B57600, "/dev/ttyUSB0"); // "/dev/pts/3");
+	razorAHRS(B57600, "/dev/pts/3"); //"/dev/ttyUSB0");
 
 	printf("\n_________________________________________________\r\n");
 
