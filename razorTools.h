@@ -16,6 +16,18 @@
 
 /*-----------------------------------------------------------------*/
 
+	// streaming mode could be single or continous
+	enum streamingMode {single, continous};
+	typedef enum streamingMode strMode;
+
+/*-----------------------------------------------------------------*/
+
+	// streaming mode could be single or continous
+	enum oFormat {text, binary};
+	typedef enum oFormat outputFormat;
+
+/*-----------------------------------------------------------------*/
+
 	/* The struggle is, to transform the binary data of the serial stream
 	 * into useful float values. It's just a matter of interpretting ones
 	 * and zeros. So we can use the same memory location and don't care if
@@ -27,7 +39,39 @@
 	};
 	typedef union rzrBffr razorBuffer;
 
-	
+/*---------------------------------------------------------*/
+
+	struct adjustment{
+		struct termios old_tio;
+		struct termios old_stdio;
+		outputFormat output_Format;
+		char *port;
+    	int tty_fd;
+		int vt_frequency;
+		int waitingTime;
+		bool synchronized;
+		speed_t baudRate;
+	};
+
+/*-----------------------------------------------------------------*/
+
+	struct razorData{
+
+		/* array that stores the sensor data
+		 *
+		 * values[0] = Yaw
+		 * values[1] = Pitch
+	 	 * values[2] = Roll    */
+		float values[3];
+
+		/* union structure to store blocks of 
+		 *  4 Byte received by the tracker (equal 
+		 *  to the size of a single float value.
+		 *  for further information look at 
+		 *  razorTools.h */
+		razorBuffer floatBuffer;
+	};
+
 
 /*-----------------------------------------------------------------*/
 
@@ -40,18 +84,6 @@
 		waitTime.tv_nsec = (milliseconds % 1000) * 1000000;
 		nanosleep(&waitTime, NULL);
 	}
-
-/*-----------------------------------------------------------------*/
-
-	// streaming mode could be single or continous
-	enum streamingMode {single, continous};
-	typedef enum streamingMode strMode;
-
-/*-----------------------------------------------------------------*/
-
-	// streaming mode could be single or continous
-	enum oFormat {text, binary};
-	typedef enum oFormat outputFormat;
 
 /*-----------------------------------------------------------------*/
 

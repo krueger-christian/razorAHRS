@@ -16,7 +16,7 @@
 
 /*---------------------------------------------------------*/
 
-struct adjustment{
+struct vt_adjustment{
 	struct termios old_tio;
 	struct termios old_stdio;
 	outputFormat output_Format;
@@ -35,7 +35,7 @@ int hertzToMilliseconds(int frequency){
 
 /*---------------------------------------------------------*/
 
-bool prepareIOConfiguration(struct adjustment *adj){
+bool prepareIOConfiguration(struct vt_adjustment *adj){
 
 	//saving current termios configurations of STDOUT_FILENO
 	if (tcgetattr(STDOUT_FILENO, &adj->old_stdio) != 0) {
@@ -56,11 +56,13 @@ bool prepareIOConfiguration(struct adjustment *adj){
 
 	tio_Config(adj->tty_fd, adj->vt_baudRate);
 
+	return true;
+
 }
 
 /*---------------------------------------------------------*/
 
-void resetIOConfiguration(struct adjustment *adj){
+void resetIOConfiguration(struct vt_adjustment *adj){
 	// reactivating previous configurations of tty_fd and the STDOUT_FIELNO
 	tcsetattr(adj->tty_fd, TCSANOW, &adj->old_tio);
 	tcsetattr(STDOUT_FILENO, TCSANOW, &adj->old_stdio);
@@ -69,10 +71,34 @@ void resetIOConfiguration(struct adjustment *adj){
 
 /*---------------------------------------------------------*/
 
+void sendToken(struct vt_adjustment *setting, unsigned char *id){
+
+	unsigned char newline = '\n';
+
+	char synch[6] = {'#','S','Y','N','C','H'};
+	write(setting->tty_fd, synch, 6);
+	write(setting->tty_fd, id, 2);
+	write(setting->tty_fd, &newline, 1);
+
+}
+
+/*---------------------------------------------------------*/
+
+bool loopOrBreak(char stopCharacter){
+	unsigned char console = 'D';
+
+	if (read(STDIN_FILENO,&console,1)>0){  
+		if (console == stopcharacter) return false;
+	}
+	else return true;
+}
+
+/*---------------------------------------------------------*/
+
 bool virtualTracker(int frequency, speed_t baudRate, char* port){
 
-	struct adjustment *setting;
-	setting = (struct adjustment*) calloc(1, sizeof(struct adjustment) );
+	struct vt_adjustment *setting;
+	setting = (struct vt_adjustment*) calloc(1, sizeof(struct vt_adjustment) );
 	setting->vt_port = port;
 	setting->vt_baudRate = baudRate;
 	setting->vt_frequency = frequency;
@@ -90,43 +116,53 @@ bool virtualTracker(int frequency, speed_t baudRate, char* port){
 	arr[2] = 0;
 
 	unsigned char singleByte = 'D';
-	unsigned char id[2];
-	unsigned char newline = '\n';
-	int i = 0;
-	int result = 0;
-	while (i < 1000) {
+	unsigned char *id;
+	id = calloc(2, sizeof(int) );
 
-		result = read(setting->tty_fd,&singleByte,1);
+	int readBytes = 0;
 
-       	if( (result == 1) && (singleByte = '#') ){
+	printf("\nPress spacebar to stop virtual Razor.\n\n");
+	while ( loopOrBreak(' ') ) {
 
-			result = read(setting->tty_fd,&singleByte,1);
+		readBytes = read(setting->tty_fd,&singleByte,1);
 
-	       	if( (result == 1) && (singleByte = 's') ){
+		// INPUT CHECK
+       	if( (readBytes == 1) && (singleByte = '#') ){
+
+			readBytes = read(setting->tty_fd,&singleByte,1);
+
+	       	if( (readBytes == 1) && (singleByte = 's') ){
+				
 				// Synch Request
 				read(setting->tty_fd,&singleByte,1);
 				id[0] = singleByte;
 				read(setting->tty_fd,&singleByte,1);
  				id[1] = singleByte;
-				char synch[6] = {'#','S','Y','N','C','H'};
-				write(setting->tty_fd, synch, 6);
-				write(setting->tty_fd, id, 2);
-				write(setting->tty_fd, &newline, 1);
+
+ 				sendToken(setting, id);
+
+ 				free(id);
+				
 			}
-			else if( (result == 1) && (singleByte = 'b') ) setting->output_Format = binary;
-			else if( (result == 1) && (singleByte = 't') ) setting->output_Format = text;
+			// set output mode to binary (3 * 4 bytes = three floating point values)
+			else if( (readBytes == 1) && (singleByte = 'b') ) setting->output_Format = binary;
+			// set output mode to string (text)
+			else if( (readBytes == 1) && (singleByte = 't') ) setting->output_Format = text;
 			
 		}
 
+		// incrementing output angles
 		if(arr[0] < 180) arr[0] += 10;
 		else if(arr[1] < 180) arr[1] += 10;
 		else if(arr[2] < 180) arr[2] += 10;
 		else {arr[0] = 0; arr[1] = 0; arr[2] = 0;}
 
+		// BINARY OUTPUT MODE
 		if(setting->output_Format == binary){
 			printf("\rYAW: %.1f\t PITCH: %.1f\t ROLL: %.1f\n", arr[0], arr[1], arr[2]);				
 			write(setting->tty_fd, arr, 12);
 		}
+		// TEXT OUTPUT MODE
 		else{
 			// snprintf() returns the number of characters it would have written
 			ssize_t len = snprintf(NULL, 0, "#YPR=%.2f,%.2f,%.2f\r\n", arr[0], arr[1], arr[2]);
@@ -147,7 +183,6 @@ bool virtualTracker(int frequency, speed_t baudRate, char* port){
 	
 
 		razorSleep(setting->waitingTime);
-		i++;
 
 	}
 

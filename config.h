@@ -22,7 +22,7 @@ void stdio_Config(){
 
 void tio_Config(int tty_fd, speed_t baudRate){
 
-	    struct termios tio;
+	struct termios tio;
 
         memset(&tio,0,sizeof(tio));
         tio.c_iflag=0;
