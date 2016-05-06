@@ -1,7 +1,8 @@
 #include "virtualTracker.c"
 
 int main(int argc,char* argv[]){
-	
+
+	/*
 	char c = 'D';
 	printf("\n------------------------------\r\n");
 	printf("Running virtual tracker? (y/n)\r\n");
@@ -26,5 +27,13 @@ int main(int argc,char* argv[]){
 		printf("invalid answer\r\n");
 		return -1;
 	}
+	*/
 
+	if( virtualTracker(10, B57600, argv[1]) != 0 )
+	{
+		printf("\rRunning virtual Tracker failed.\r\n");
+		return -1;
+	}
+	else return 0;
+	
 }

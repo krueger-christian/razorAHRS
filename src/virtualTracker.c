@@ -76,13 +76,26 @@ bool prepareIOConfiguration(struct vt_adjustment *setting){
 /*---------------------------------------------------------*/
 
 void sendToken(struct vt_adjustment *setting, unsigned char *id){
+	
+	unsigned char *synch;
+	synch = calloc(10, sizeof(unsigned char) );
 
-	unsigned char newline = '\n';
+	synch[0] = '#';
+	synch[1] = 'S';
+	synch[2] = 'Y';
+	synch[3] = 'N';
+	synch[4] = 'C';
+	synch[5] = 'H';
+	synch[6] = id[0];
+	synch[7] = id[1];
+	synch[8] = '\r';
+	synch[9] = '\n';
 
-	char synch[6] = {'#','S','Y','N','C','H'};
-	write(setting->tty_fd, synch, 6);
-	write(setting->tty_fd, id, 2);
-	write(setting->tty_fd, &newline, 1);
+	printf("sending: %s", synch);
+
+	write(setting->tty_fd, synch, 10);
+
+	free(synch);
 
 }
 
@@ -120,6 +133,7 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
 	unsigned char *id;
 	id = calloc(2, sizeof(int) );
 
+
 	int readBytes = 0;
 
 	printf("\nPress spacebar to stop virtual Razor.\n\n");
@@ -127,13 +141,18 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
 
 		readBytes = read(setting->tty_fd,&singleByte,1);
 
+
 		// INPUT CHECK
        	if( (readBytes == 1) && (singleByte = '#') ){
+	
+			printf("\r\nreading: %c", singleByte);			
 
 			readBytes = read(setting->tty_fd,&singleByte,1);
 
-	       	if( (readBytes == 1) && (singleByte = 's') ){
-				
+	       	if( (readBytes == 1) && (singleByte == 's') ){
+			
+				printf("%c\n\r", singleByte);			
+	
 				// Synch Request
 				read(setting->tty_fd,&singleByte,1);
 				id[0] = singleByte;
@@ -141,15 +160,23 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
  				id[1] = singleByte;
 
  				sendToken(setting, id);
-
- 				free(id);
 				
 			}
-			// set output mode to binary (3 * 4 bytes = three floating point values)
-			else if( (readBytes == 1) && (singleByte = 'b') ) setting->output_Format = binary;
-			// set output mode to string (text)
-			else if( (readBytes == 1) && (singleByte = 't') ) setting->output_Format = text;
-			
+			else if( (readBytes == 1) && (singleByte == 'o') ) {
+
+				printf("%c", singleByte);			
+
+				readBytes = read(setting->tty_fd,&singleByte,1);
+
+				printf("%c\r\n", singleByte);			
+
+				// set output mode to binary (3 * 4 bytes = three floating point values)
+				if( (readBytes == 1) && (singleByte == 'b') ) setting->output_Format = binary;
+				// set output mode to string (text)
+				else if( (readBytes == 1) && (singleByte == 't') ) setting->output_Format = text;			
+
+			}			
+
 		}
 
 		// incrementing output angles
@@ -160,7 +187,7 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
 
 		// BINARY OUTPUT MODE
 		if(setting->output_Format == binary){
-			printf("\rYAW: %.1f\t PITCH: %.1f\t ROLL: %.1f\n", arr[0], arr[1], arr[2]);				
+			//printf("\rYAW: %.1f\t PITCH: %.1f\t ROLL: %.1f\n", arr[0], arr[1], arr[2]);				
 			write(setting->tty_fd, arr, 12);
 		}
 		// TEXT OUTPUT MODE
@@ -175,7 +202,7 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
 				// generate String
 				sprintf(output, "#YPR=%.2f,%.2f,%.2f\r\n", arr[0], arr[1], arr[2]);
 
-				printf("%s\n", output);
+				//printf("%s\n", output);
 
 				write(setting->tty_fd, output, len);
 				free(output);
@@ -190,6 +217,7 @@ int virtualTracker(int frequency, speed_t baudRate, char* port){
 	resetIOConfiguration(setting);
 	free(floatBuffer);
 	free(setting);
+	free(id);
 
 	return 0;
 
