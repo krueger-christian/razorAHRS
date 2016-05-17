@@ -1,3 +1,6 @@
+#ifndef RAZORAHRS_C
+#define RAZORAHRS_C
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,11 +34,11 @@
 
 	/* time limit (milliseconds) to wait 
 	 * during synchronization phase */
-	int connect_timeout_ms = 1000;
+	const int connect_timeout_ms = 1000;
 
 	/* disable/enable the output of program 
 	 * status reports on the console */
-	bool messageOn = true;
+	#define messageOn true
 
 /*********************************************
  ***       END OF USER SELECTION AREA      ***
@@ -55,7 +58,7 @@
  * ... returns true, if tracker is synchronized
  * ... returns false, if connection or synchronization failed */
 bool initRazor(struct adjustment *settings){
-	
+
 	// Buffer to store one byte
 	char input = 'D';
 
@@ -71,9 +74,16 @@ bool initRazor(struct adjustment *settings){
 	char token_reference[10];
 	strcpy(token_reference, "#SYNCH00\r\n"); 
 
+	/* variables to store time values
+	 * used to measure how long 
+	 * synchronization takes */
+	struct timeval t0, t1, t2;
+	gettimeofday(&t0, NULL);
+	t1 = t0;
+
 	// Trying to connect and switch to binary mode during loop
+	if(messageOn) printf("\n  – LOOKING FOR TRACKER: ");	
 	while(1){
-		if(messageOn) printf("\n  – LOOKING FOR TRACKER: ");
 		if (read(settings->tty_fd,&input,1)>0){
 			if(messageOn){
 				printf("__okay.\n\r");
@@ -83,6 +93,14 @@ bool initRazor(struct adjustment *settings){
 			write(settings->tty_fd,"#o1",3); // output continous stream
 			write(settings->tty_fd,"#ob",3); // output binary
 			break;
+		}
+
+		// check if time out is reached
+		gettimeofday(&t2, NULL);
+		if (elapsed_ms(t0, t2) > connect_timeout_ms) {
+			if(messageOn) printf("___failed.\n\r"); // TIME OUT!		
+				free(token);			
+				return false;
 		}
 	}
 
@@ -103,15 +121,12 @@ bool initRazor(struct adjustment *settings){
 	 * tracker read the send signals */
 	razorSleep(200);
 
-	/* variables to store time values
-	 * used to measure how long 
-	 * synchronization takes */
-	struct timeval t0, t1, t2;
-	gettimeofday(&t0, NULL);
-	t1 = t0;
-
 	// make sure, control variable is set to 0
 	size_t token_pos = 0;
+
+	// updating time reference
+	gettimeofday(&t0, NULL);
+	t1 = t0;
 
 	/* SYNCHRONIZATION
 	 * Looking for correct token. */
@@ -193,22 +208,23 @@ int readContinously(struct adjustment *settings, struct razorData *data){
 	while (!stopRead) {
 
 		result = read(settings->tty_fd,&singleByte,1);
+//		printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
        	if (result == 1) {
-
 			data->floatBuffer.ch[bufferInput] = singleByte;
 			bufferInput++;
 
-				if(bufferInput == 4){
-					data->values[values_pos] = data->floatBuffer.f;
-					values_pos++;
-					bufferInput = 0;
-				}		
+			if(bufferInput == 4){
+				data->values[values_pos] = data->floatBuffer.f;
+				values_pos++;
+				bufferInput = 0;
+			}		
 		}
 
 		// if new data is available on the serial port, print it out
 		if(values_pos == 3){
-			if(printData)printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", data->values[0], data->values[1], data->values[2]);
+			if(printData)printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", \
+			data->values[0], data->values[1], data->values[2]);
 			values_pos = 0;
 			razorSleep(20);
 		}
@@ -254,25 +270,35 @@ bool readingRazor(struct adjustment *settings, struct razorData *data){
 int razorAHRS( speed_t baudRate, char* port){
 
 
+		// setting description that is used during the whole process
 		struct adjustment *settings;
 		settings = (struct adjustment*) calloc(1, sizeof(struct adjustment) );
 
+		// construction to store the data
 		struct razorData *data;
 		data = (struct razorData*) calloc(1, sizeof(struct razorData) );
 
 		//saving current termios configurations of STDOUT_FILENO
 		if (tcgetattr(STDOUT_FILENO, &settings->old_stdio) != 0) {
-        	printf("tcgetattr(fd, &old_stdtio) failed\r\n");
+        	printf("INFO: Saving configuration STDOUT_FILENO failed.\n\r--> tcgetattr(fd, &old_stdtio)\r\n");
         	return -1;
     	}
 
 		stdio_Config();
 
+		// saving port id and name in the settings
         settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);      
         settings->port = port;
+
 		//saving current termios configurations of tty_fd
 		if (tcgetattr(settings->tty_fd, &settings->old_tio) != 0) {
-        	printf("tcgetattr(fd, &old_tio) failed\r\n");
+        	printf("INFO: Saving configuration of %s failed.\n\r--> tcgetattr(fd, &old_tio)\r\n", port);
+
+			/*reactivating the previous configurations of STDOUT_FILENO 
+			because of breaking the process */
+			tcsetattr(STDOUT_FILENO, TCSANOW, &settings->old_stdio);
+	        close(settings->tty_fd);
+
         	return -1;
     	}		
 
@@ -296,3 +322,5 @@ int razorAHRS( speed_t baudRate, char* port){
 	https://tty1.net/blog/2009/linux-serial-programming-example_en.html
 
 -------------------------------------------------------------------*/
+
+#endif // RAZORAHRS_C

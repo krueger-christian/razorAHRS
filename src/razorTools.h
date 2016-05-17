@@ -55,13 +55,15 @@
 
 /*-----------------------------------------------------------------*/
 
+	/* data type to store the yaw, pitch and roll
+	   value of the RazorAHRS tracker */
 	struct razorData{
 
 		/* array that stores the sensor data
 		 *
 		 * values[0] = Yaw
 		 * values[1] = Pitch
-	 	 * values[2] = Roll    */
+	 	 * values[2] = Roll  */
 		float values[3];
 
 		/* union structure to store blocks of 
@@ -72,11 +74,10 @@
 		razorBuffer floatBuffer;
 	};
 
-
 /*-----------------------------------------------------------------*/
 
 	/* 
-	 *
+	 * sleep function
 	 */
 	void razorSleep(int milliseconds) {
 		struct timespec waitTime;
@@ -98,7 +99,6 @@
     }
 
 /*-----------------------------------------------------------------*/
-
 
 	/* Compares two strings. If the strings are literally are equal,
 	 * it returns true (1), otherwise false (0)

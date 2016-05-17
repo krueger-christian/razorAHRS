@@ -1,5 +1,5 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef RAZOR_CONFIG_H
+#define RAZOR_CONFIG_H
 
 void stdio_Config(){
 
@@ -36,4 +36,4 @@ void tio_Config(int tty_fd, speed_t baudRate){
         tcsetattr(tty_fd,TCSANOW,&tio);
 }
 
-#endif // CONFIG_H
+#endif // RAZOR_CONFIG_H
