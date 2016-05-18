@@ -4,15 +4,25 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-
 #include <fcntl.h>
 #include <termios.h>
-
 #include <string.h> // needed for memset
-
 #include <sys/time.h>
 
+/* 
+ * includes the termios settings 
+ * of the standard IO and the tracker IO
+ * and a reset function resetConfig() 
+ */
 #include "config.h"
+
+/*
+ * includes several types of storing 
+ * data and settings as well as the
+ * functions
+ *   - razorsleep( int milliseconds)
+ *   - long elapsed_ms(struct timeval start, struct timeval end)
+ */
 #include "razorTools.h"
 
 
@@ -20,32 +30,63 @@
  ***          USER SELECTION AREA          ***
 *********************************************/
 
-	/*  => select out of {single, continous}
+	/*  => select out of {single, continuous}
 	 *
 	 *  tracker is readable in two different 
 	 *  streaming modes:
 	 *  1. single mode: 
 	 *     the tracker sends only a frame 
 	 *     after request
-	 *  2. continous mode: 
+	 *  2. continuous mode: 
 	 *     the tracker sends permanently data
 	 *     (every 20ms one frame, 12 byte) */
-	strMode mode = continous;
+	//strMode mode = continuous;
 
 	/* time limit (milliseconds) to wait 
 	 * during synchronization phase */
 	const int connect_timeout_ms = 1000;
 
+	/* time limit (milliseconds) to wait 
+	 * during flushing the input line to razor */
+	const int flush_timeout_ms = 1000;
+
 	/* disable/enable the output of program 
 	 * status reports on the console */
-	#define messageOn true
+	#define message true
 
 /*********************************************
  ***       END OF USER SELECTION AREA      ***
 *********************************************/
 
+/*-----------------------------------------------------------------*/
 
+/* kind of flushing the input.
+ * the tracker started in textmode and sends strings/frames of the format:
+ * "YPR=<yaw-value>,<pitch-value2>,<roll-value3>\r\n",
+ * after receiving '\n' we are sure that with the next byte we will 
+ * receive the start of a new frame */
+bool razorFlush(struct adjustment* settings){
+	char singleByte = 'D';
 
+	/* variables to store time values
+	 * used to measure how long 
+	 * synchronization takes */
+	struct timeval t0, t1;
+	gettimeofday(&t0, NULL);
+
+	while(singleByte != '\n'){
+	
+		read(settings->tty_fd,&singleByte,1);
+
+		// check if time out is reached
+		gettimeofday(&t1, NULL);
+		if (elapsed_ms(t0, t1) > flush_timeout_ms) {
+			printf("INFO: Flushing failed. (time out)\n\r"); // TIME OUT!		
+			return false;
+		}
+	}
+	return true;
+}
 
 /*-----------------------------------------------------------------*/
 
@@ -53,7 +94,7 @@
  *
  * The function...
  * ... checks, if tracker is available
- * ... activates continous binary streaming mode
+ * ... activates continuous binary streaming mode
  * ... ensures that receiving and sending is synchronous
  * ... returns true, if tracker is synchronized
  * ... returns false, if connection or synchronization failed */
@@ -76,21 +117,21 @@ bool initRazor(struct adjustment *settings){
 
 	/* variables to store time values
 	 * used to measure how long 
-	 * synchronization takes */
+	 * connecting takes */
 	struct timeval t0, t1, t2;
 	gettimeofday(&t0, NULL);
 	t1 = t0;
 
 	// Trying to connect and switch to binary mode during loop
-	if(messageOn) printf("\n  – LOOKING FOR TRACKER: ");	
+	if(settings->messageOn) printf("\n  – LOOKING FOR TRACKER: ");	
 	while(1){
 		if (read(settings->tty_fd,&input,1)>0){
-			if(messageOn){
+			if(settings->messageOn){
 				printf("__okay.\n\r");
 				printf("\n  – SWITCH TO BINARY OUTPUT MODE.\n\r");
 			}
 	
-			write(settings->tty_fd,"#o1",3); // output continous stream
+			write(settings->tty_fd,"#o1",3); // output continuous stream
 			write(settings->tty_fd,"#ob",3); // output binary
 			break;
 		}
@@ -98,7 +139,7 @@ bool initRazor(struct adjustment *settings){
 		// check if time out is reached
 		gettimeofday(&t2, NULL);
 		if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-			if(messageOn) printf("___failed.\n\r"); // TIME OUT!		
+			if(settings->messageOn) printf("___failed. (time out)\n\r"); // TIME OUT!		
 				free(token);			
 				return false;
 		}
@@ -114,7 +155,7 @@ bool initRazor(struct adjustment *settings){
 	}
 
 	// send request for synchronization token
-	if(messageOn) printf("\n  – SYNCHRONIZING: ");
+	if(settings->messageOn) printf("\n  – SYNCHRONIZING: ");
 	write(settings->tty_fd,"#s00",4);
 
 	/* wait a little bit to get sure that the
@@ -152,10 +193,10 @@ bool initRazor(struct adjustment *settings){
 				
 				/* if received token is equal to the reference token
 				 * the variable synchronized is set to true */	
-				settings->synchronized = stringCompare(token, token_reference, token_length);
-				
+				settings->synchronized = ( strcmp(token, token_reference) == 0 ) ? true : false ;
+
 				if(settings->synchronized == true){
-					if(messageOn) printf("__okay.\n\r");
+					if(settings->messageOn) printf("__okay.\n\r");
 						free(token);					
 						return true;
 				}
@@ -171,7 +212,8 @@ bool initRazor(struct adjustment *settings){
 		}
 		// check if time out is reached
 		if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-			if(messageOn) printf("___failed.\n\r"); // TIME OUT!		
+			settings->synchronized = false;
+			if(settings->messageOn) printf("___failed. (time out)\n\r"); // TIME OUT!		
 				free(token);			
 				return false;
 		}
@@ -184,7 +226,26 @@ bool initRazor(struct adjustment *settings){
 
 /*-----------------------------------------------------------------*/
 
-int readContinously(struct adjustment *settings, struct razorData *data){
+bool valueCheck(struct adjustment *settings, struct razorData *data){
+			if((data->values[0] > 180) || \
+			   (data->values[1] > 180) || \
+			   (data->values[0] > 180)){
+				settings->messageOn = false;
+				settings->synchronized = false;
+				initRazor(settings);
+				settings->messageOn = true;
+				
+				if(settings->synchronized == false) {
+					printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
+					return false;
+				}
+			}
+			return true;
+}
+
+/*-----------------------------------------------------------------*/
+
+bool readContinuously(struct adjustment *settings, struct razorData *data){
 
 	// Buffer to store user input from console
 	unsigned char console = 'D';
@@ -194,11 +255,11 @@ int readContinously(struct adjustment *settings, struct razorData *data){
 	write(settings->tty_fd,"#ob",3); // just to ensure binary output
 	
 	bool printData;
-	if(messageOn) printData = false;
+	if(settings->messageOn) printData = false;
 	else printData = true;
 	bool stopRead = false;
 
-	if(messageOn){
+	if(settings->messageOn){
 		printf("_________________________________________________\r\n");
 		printf("\n  !\n\r    PRESS SPACEBAR TO START/STOP SHOWING DATA\n\n\n\r");
 	}
@@ -208,7 +269,7 @@ int readContinously(struct adjustment *settings, struct razorData *data){
 	while (!stopRead) {
 
 		result = read(settings->tty_fd,&singleByte,1);
-//		printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
+		//printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
        	if (result == 1) {
 			data->floatBuffer.ch[bufferInput] = singleByte;
@@ -223,6 +284,7 @@ int readContinously(struct adjustment *settings, struct razorData *data){
 
 		// if new data is available on the serial port, print it out
 		if(values_pos == 3){
+			if(valueCheck(settings, data) == false) return false;
 			if(printData)printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", \
 			data->values[0], data->values[1], data->values[2]);
 			values_pos = 0;
@@ -232,42 +294,137 @@ int readContinously(struct adjustment *settings, struct razorData *data){
 		// if new data is available on the console, send it to the serial port
         if (read(STDIN_FILENO,&console,1)>0){  
 			if ((printData == false) && (console == ' ')) printData = true;
-			else stopRead = true;
+			else if (console == ' ') stopRead = true;
 		}
 	}
 
 	// reactivate text mode
 	write(settings->tty_fd,"#ot",3);
 
-	return 0;	
+	return true;	
 }
 
+/*-----------------------------------------------------------------*/
+
+bool readSingle(struct adjustment *settings, struct razorData *data){
+
+	// Buffer to store user input from console
+	unsigned char console = 'D';
+	char singleByte = 'D';
+
+	size_t values_pos = 0;
+	write(settings->tty_fd,"#o0",3); // disable output continuous stream
+	razorSleep(20);
+	write(settings->tty_fd,"#ob",3); // just to ensure binary output
+	razorSleep(20);
+	razorFlush(settings);
+
+	/* variables to store time values
+	 * used to measure how long 
+	 * requesting takes */
+	struct timeval t0, t1, t2;
+	gettimeofday(&t0, NULL);
+	t1 = t0;
+
+	bool stopRead = false;
+
+	if(settings->messageOn){
+		printf("_________________________________________________\r\n");
+		printf("\n  !\n\r    PRESS SPACEBAR TO REQUEST DATA FRAME\n\r");
+		printf("    PRESS     Q    TO QUIT\n\n\n\r");
+	}
+
+	int result;
+	int bufferInput = 0;
+	while (!stopRead) {
+
+		// if new data is available on the console...
+        if (read(STDIN_FILENO,&console,1)>0){
+
+			// pressed q or Q --> quit
+			if ((console == 'q') || (console == 'Q')) stopRead = true;
+			// pressed spacebar --> read one frame
+			else if(console == ' ') {
+
+				write(settings->tty_fd,"#f",2); // send request
+
+				gettimeofday(&t0, NULL);
+				t1 = t0;	
+				while(1){
+					result = read(settings->tty_fd,&singleByte,1);
+					//printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
+					
+	       			if (result == 1) {
+						data->floatBuffer.ch[bufferInput] = singleByte;
+						bufferInput++;
+
+						if(bufferInput == 4){
+							data->values[values_pos] = data->floatBuffer.f;
+							values_pos++;
+							bufferInput = 0;
+						}					
+					}
+
+					// if new data is available on the serial port, print it out
+					if(values_pos == 3){
+						if(valueCheck(settings, data) == false) return false;
+						printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", \
+						data->values[0], data->values[1], data->values[2]);
+						values_pos = 0;
+						razorSleep(20);
+						break;
+					}
+
+					gettimeofday(&t2, NULL);
+					
+					if (elapsed_ms(t1, t2) > 200) {
+						// 200ms elapsed since last request and no answer -> request synch again
+						// (this happens when DTR is connected and Razor resets on connect)
+						write(settings->tty_fd,"#f",2);
+						values_pos = 0;
+						bufferInput = 0;
+						t1 = t2;
+					}
+					
+					// check if time out is reached
+					if (elapsed_ms(t0, t2) > connect_timeout_ms) {
+						if(settings->messageOn) printf("INFO: request failed. (time out)\n\r"); // TIME OUT!		
+						break;
+					}
+				}		
+			}
+		}
+	}
+
+	// reactivate text mode
+	write(settings->tty_fd,"#ot",3);
+
+	return true;	
+}
 
 /*-----------------------------------------------------------------*/
 
 bool readingRazor(struct adjustment *settings, struct razorData *data){
 
 	if(initRazor(settings) == false) return false;
-	
-	readContinously(settings, data);
-
-/*	if(mode == continous){
-		readContinously(tty_fd);
+		
+	if(settings->streaming_Mode == continuous){
+		readContinuously(settings, data);
 	}
-	else if(mode == single) {
-		readSingle(tty_fd);
+	else if(settings->streaming_Mode == single) {
+		readSingle(settings,data);
 	}
 	else{
-		printf("no streaming mode selected!");
+		printf("INFO: No streaming mode selected!");
 		return 1;
-	}*/
+	}
 
 	return true;		
 }
 
 /*-----------------------------------------------------------------*/
 
-int razorAHRS( speed_t baudRate, char* port){
+int razorAHRS( speed_t baudRate, char* port, int mode){
 
 
 		// setting description that is used during the whole process
@@ -280,37 +437,42 @@ int razorAHRS( speed_t baudRate, char* port){
 
 		//saving current termios configurations of STDOUT_FILENO
 		if (tcgetattr(STDOUT_FILENO, &settings->old_stdio) != 0) {
+			settings->stdio_config_changed = false;
         	printf("INFO: Saving configuration STDOUT_FILENO failed.\n\r--> tcgetattr(fd, &old_stdtio)\r\n");
         	return -1;
     	}
 
 		stdio_Config();
+		settings->stdio_config_changed = true;
 
 		// saving port id and name in the settings
         settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);      
         settings->port = port;
-
+		settings->streaming_Mode = (mode == 1) ? single : continuous;
+		settings->messageOn = message;
 		//saving current termios configurations of tty_fd
 		if (tcgetattr(settings->tty_fd, &settings->old_tio) != 0) {
+			settings->tio_config_changed = false;
         	printf("INFO: Saving configuration of %s failed.\n\r--> tcgetattr(fd, &old_tio)\r\n", port);
 
 			/*reactivating the previous configurations of STDOUT_FILENO 
 			because of breaking the process */
-			tcsetattr(STDOUT_FILENO, TCSANOW, &settings->old_stdio);
-	        close(settings->tty_fd);
+			resetConfig(settings);
 
         	return -1;
     	}		
 
 		tio_Config(settings->tty_fd, baudRate);
-
+		settings->tio_config_changed = true;
+	
 		readingRazor(settings, data);
 
 
 		// reactivating previous configurations of tty_fd and the STDOUT_FIELNO
-		tcsetattr(settings->tty_fd, TCSANOW, &settings->old_tio);
-		tcsetattr(STDOUT_FILENO, TCSANOW, &settings->old_stdio);
-        close(settings->tty_fd);
+		resetConfig(settings);
+
+		free(settings);
+		free(data);
 		
 		return 0;	
 }

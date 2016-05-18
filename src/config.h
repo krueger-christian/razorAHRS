@@ -1,6 +1,8 @@
 #ifndef RAZOR_CONFIG_H
 #define RAZOR_CONFIG_H
 
+#include "razorTools.h"
+
 void stdio_Config(){
 
         struct termios stdio;
@@ -34,6 +36,19 @@ void tio_Config(int tty_fd, speed_t baudRate){
         cfsetospeed(&tio,baudRate);           // 57600 baud
         cfsetispeed(&tio,baudRate);          // 57600 baud
         tcsetattr(tty_fd,TCSANOW,&tio);
+}
+
+/*-----------------------------------------------------------------*/
+
+void resetConfig(struct adjustment *settings){
+		if(settings->tio_config_changed){
+			tcsetattr(settings->tty_fd, TCSANOW, &settings->old_tio);
+		}
+
+		if(settings->stdio_config_changed){
+			tcsetattr(STDOUT_FILENO, TCSANOW, &settings->old_stdio);
+		}
+        close(settings->tty_fd);
 }
 
 #endif // RAZOR_CONFIG_H

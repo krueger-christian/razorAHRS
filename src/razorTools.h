@@ -3,7 +3,6 @@
 
 
 #include <sys/time.h>
-
 #include <time.h>
 
 /*-----------------------------------------------------------------*/
@@ -17,7 +16,7 @@
 /*-----------------------------------------------------------------*/
 
 	// streaming mode could be single or continous
-	enum streamingMode {single, continous};
+	enum streamingMode {single, continuous};
 	typedef enum streamingMode strMode;
 
 /*-----------------------------------------------------------------*/
@@ -45,6 +44,10 @@
 		struct termios old_tio;
 		struct termios old_stdio;
 		outputFormat output_Format;
+		strMode streaming_Mode;
+		bool messageOn;
+		bool tio_config_changed;
+		bool stdio_config_changed;
 		char *port;
     	int tty_fd;
 		int vt_frequency;
@@ -102,6 +105,7 @@
 
 	/* Compares two strings. If the strings are literally are equal,
 	 * it returns true (1), otherwise false (0)
+	 * !!! out dated - not used anymore !!!
 	*/
 	bool stringCompare(char* s1, char* s2, int length){
 		for(int i = 0; i < length; i++){
