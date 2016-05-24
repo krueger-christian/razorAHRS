@@ -1,3 +1,13 @@
+/*****************************************************************
+ *                                                               *
+ * (c) 2016 / QU Lab / T-Labs / TU Berlin                        *
+ *                                                               *
+ * --> more informations and changeable user settings            *
+ *     in the razorAHRS.c file or on github                      *
+ *     https://github.com/krueger-christian/razorAHRS            *
+ *                                                               *
+ ****************************************************************/
+
 #ifndef RAZORTOOLS_H
 #define RAZORTOOLS_H
 
@@ -61,6 +71,12 @@
 	/* data type to store the yaw, pitch and roll
 	   value of the RazorAHRS tracker */
 	struct razorData{
+
+		/*
+		 * Flag that is managed by valueCheck() function
+		 * true: the current values don't match the valid range
+		 * false: the current values are inside the valid range*/
+		bool data_fail;
 
 		/* array that stores the sensor data
 		 *

@@ -1,3 +1,30 @@
+/*****************************************************************
+ *                                                               *
+ *                                                               *
+ *               -- DEMONSTRATION PROGRAMM --                    *
+ *                                                               *
+ *                                                               *
+ * C-coded functions to read the the measuring data of the       *
+ * 9 Degree of Measurement Attitude and Heading Reference System *
+ * of Sparkfun's "9DOF Razor IMU" and "9DOF Sensor Stick"        *
+ *                                                               *
+ * Developed at Quality & Usability Lab,                         *
+ * Deutsche Telekom Laboratories & TU Berlin,                    *
+ * written by Christian Krüger,                                  *
+ * (C) 2016                                                      *
+ *                                                               *
+ *                                                               *
+ * a former version, used as reference and coded in C++, was     *
+ * written by Peter Bartz:                                       *
+ *     https://github.com/ptrbrtz/razor-9dof-ahrs                *
+ *                                                               *
+ *                                                               *
+ * --> more informations and changeable user settings            *
+ *     in the file razorAHRS.c or on github:                     *    
+ *     https://github.com/krueger-christian/razorAHRS            *
+ *                                                               *
+ ****************************************************************/
+
 #include "razorAHRS.c"
 
 /*-----------------------------------------------------------------*/

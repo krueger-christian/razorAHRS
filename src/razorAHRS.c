@@ -1,3 +1,27 @@
+/*****************************************************************
+ *                                                               *
+ * C-coded functions to read the the measuring data of the       *
+ * 9 Degree of Measurement Attitude and Heading Reference System *
+ * of Sparkfun's "9DOF Razor IMU" and "9DOF Sensor Stick"        *
+ *                                                               *
+ * Developed at Quality & Usability Lab,                         *
+ * Deutsche Telekom Laboratories & TU Berlin,                    *
+ * written by Christian Krüger,                                  *
+ * (C) 2016                                                      *
+ *                                                               *
+ *                                                               *
+ * a former version, used as reference and coded in C++, was     *
+ * written by Peter Bartz:                                       *
+ *     https://github.com/ptrbrtz/razor-9dof-ahrs                *
+ *                                                               *
+ *                                                               *
+ * --> more informations and changeable user settings            *
+ *     below after the preprocessor instructions or              *  
+ *     on github:                                                *
+ *     https://github.com/krueger-christian/razorAHRS            *
+ *                                                               *
+ ****************************************************************/
+
 #ifndef RAZORAHRS_C
 #define RAZORAHRS_C
 
@@ -26,9 +50,9 @@
 #include "razorTools.h"
 
 
-/*********************************************
- ***          USER SELECTION AREA          ***
-*********************************************/
+/****************************************************************
+ ***                  USER SELECTION AREA                     ***
+ ****************************************************************/
 
 	/*  => select out of {single, continuous}
 	 *
@@ -54,11 +78,12 @@
 	 * status reports on the console */
 	#define message true
 
-/*********************************************
- ***       END OF USER SELECTION AREA      ***
-*********************************************/
+/****************************************************************
+ ***                END OF USER SELECTION AREA                ***
+ ****************************************************************/
 
-/*-----------------------------------------------------------------*/
+
+
 
 /* kind of flushing the input.
  * the tracker started in textmode and sends strings/frames of the format:
@@ -234,12 +259,14 @@ bool valueCheck(struct adjustment *settings, struct razorData *data){
 				settings->synchronized = false;
 				initRazor(settings);
 				settings->messageOn = true;
+				data->data_fail = true;
 				
 				if(settings->synchronized == false) {
 					printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
 					return false;
 				}
 			}
+			else data->data_fail = false;
 			return true;
 }
 
@@ -285,8 +312,10 @@ bool readContinuously(struct adjustment *settings, struct razorData *data){
 		// if new data is available on the serial port, print it out
 		if(values_pos == 3){
 			if(valueCheck(settings, data) == false) return false;
-			if(printData)printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", \
-			data->values[0], data->values[1], data->values[2]);
+			if( (printData) && (data->data_fail == false) ){
+				printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
+				data->values[0], data->values[1], data->values[2]);
+			}
 			values_pos = 0;
 			razorSleep(20);
 		}
@@ -368,8 +397,10 @@ bool readSingle(struct adjustment *settings, struct razorData *data){
 					// if new data is available on the serial port, print it out
 					if(values_pos == 3){
 						if(valueCheck(settings, data) == false) return false;
-						printf("YAW = %.1f \t PITCH = %.1f \t ROLL = %.1f \r\n", \
-						data->values[0], data->values[1], data->values[2]);
+						if(data->data_fail == false){ 
+							printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n",\
+							data->values[0], data->values[1], data->values[2]);
+						}
 						values_pos = 0;
 						razorSleep(20);
 						break;
