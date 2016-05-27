@@ -252,9 +252,9 @@ bool initRazor(struct adjustment *settings){
 /*-----------------------------------------------------------------*/
 
 bool valueCheck(struct adjustment *settings, struct razorData *data){
-			if((data->values[0] > 180) || \
-			   (data->values[1] > 180) || \
-			   (data->values[0] > 180)){
+			if((data->values[0] > 360) || \
+			   (data->values[1] > 360) || \
+			   (data->values[0] > 360)){
 				settings->messageOn = false;
 				settings->synchronized = false;
 				initRazor(settings);
@@ -264,6 +264,10 @@ bool valueCheck(struct adjustment *settings, struct razorData *data){
 				if(settings->synchronized == false) {
 					printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
 					return false;
+				}
+				else if(settings->streaming_Mode == single){
+					write(settings->tty_fd,"#o0",3); // disable output continuous stream
+					razorSleep(20);
 				}
 			}
 			else data->data_fail = false;
@@ -402,6 +406,7 @@ bool readSingle(struct adjustment *settings, struct razorData *data){
 							data->values[0], data->values[1], data->values[2]);
 						}
 						values_pos = 0;
+						while(read(settings->tty_fd,&singleByte,1) > 0){};                  // <-- TODO
 						razorSleep(20);
 						break;
 					}
