@@ -85,33 +85,7 @@
 
 
 
-/* kind of flushing the input.
- * the tracker started in textmode and sends strings/frames of the format:
- * "YPR=<yaw-value>,<pitch-value2>,<roll-value3>\r\n",
- * after receiving '\n' we are sure that with the next byte we will 
- * receive the start of a new frame */
-bool razorFlush(struct adjustment* settings){
-	char singleByte = 'D';
 
-	/* variables to store time values
-	 * used to measure how long 
-	 * synchronization takes */
-	struct timeval t0, t1;
-	gettimeofday(&t0, NULL);
-
-	while(singleByte != '\n'){
-	
-		read(settings->tty_fd,&singleByte,1);
-
-		// check if time out is reached
-		gettimeofday(&t1, NULL);
-		if (elapsed_ms(t0, t1) > flush_timeout_ms) {
-			printf("INFO: Flushing failed. (time out)\n\r"); // TIME OUT!		
-			return false;
-		}
-	}
-	return true;
-}
 
 /*-----------------------------------------------------------------*/
 
@@ -350,7 +324,9 @@ bool readSingle(struct adjustment *settings, struct razorData *data){
 	razorSleep(20);
 	write(settings->tty_fd,"#ob",3); // just to ensure binary output
 	razorSleep(20);
-	razorFlush(settings);
+	if(razorFlush(settings, flush_timeout_ms, 1) == false) return false;
+
+	
 
 	/* variables to store time values
 	 * used to measure how long 
@@ -406,7 +382,8 @@ bool readSingle(struct adjustment *settings, struct razorData *data){
 							data->values[0], data->values[1], data->values[2]);
 						}
 						values_pos = 0;
-						while(read(settings->tty_fd,&singleByte,1) > 0){};                  // <-- TODO
+						
+// TODO
 						razorSleep(20);
 						break;
 					}
@@ -504,7 +481,7 @@ int razorAHRS( speed_t baudRate, char* port, int mode){
 		readingRazor(settings, data);
 
 
-		// reactivating previous configurations of tty_fd and the STDOUT_FIELNO
+		// reactivating previous configurations of tty_fd and the STDOUT_FILENO
 		resetConfig(settings);
 
 		free(settings);

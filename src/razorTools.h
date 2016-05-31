@@ -95,6 +95,18 @@
 
 /*-----------------------------------------------------------------*/
 
+    /* measuring elapsed time:
+	 * During synchronization we need to check the time. Ones to know,
+	 * when we have to send a new request to the tracker/board, second 
+	 * to stop the attempt after a certain amount of time, when we could 
+	 * be shure not having success anymore.   
+	*/
+	long elapsed_ms(struct timeval start, struct timeval end) {
+      return (long) ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
+    }
+
+/*-----------------------------------------------------------------*/
+
 	/* 
 	 * sleep function
 	 */
@@ -107,15 +119,66 @@
 
 /*-----------------------------------------------------------------*/
 
-    /* measuring elapsed time:
-	 * During synchronization we need to check the time. Ones to know,
-	 * when we have to send a new request to the tracker/board, second 
-	 * to stop the attempt after a certain amount of time, when we could 
-	 * be shure not having success anymore.   
-	*/
-	long elapsed_ms(struct timeval start, struct timeval end) {
-      return (long) ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
-    }
+/* kind of flushing the input.
+ *
+ * On one hand because the tracker started in textmode and sends 
+ * strings/frames of the format:
+ * "YPR=<yaw-value>,<pitch-value2>,<roll-value3>\r\n",
+ * after receiving '\n' we are sure that with the next byte we 
+ * will receive the start of a new frame 
+ *
+ * On the other hand it could be a problem after switching from
+ * continuous streaming to single frame streaming. During continuous
+ * streaming are so many reads made that there are still a lot of 
+ * frames in the pipe after even after the switch. We need the second
+ * flush type:
+ *
+ * 1. flush type: flushing until end-of-line character is detected
+ *                --> use flag flushType = 0
+ *
+ * 2. flush type: flushing until no input is readable anymore
+ *                --> use flag flushType = 1
+ */
+bool razorFlush(struct adjustment* settings, int flush_timeout_ms, int flushType){
+	char singleByte = 'D';
+
+	/* variables to store time values
+	 * used to measure how long 
+	 * synchronization takes */
+	struct timeval t0, t1;
+	gettimeofday(&t0, NULL);
+
+	//flush to end of line
+	if(flushType == 0){
+		while(singleByte != '\n'){
+	
+			read(settings->tty_fd,&singleByte,1);
+
+			// check if time out is reached
+			gettimeofday(&t1, NULL);
+			if (elapsed_ms(t0, t1) > flush_timeout_ms) {
+				printf("INFO: Flushing failed. (time out)\n\r"); // TIME OUT!		
+				return false;
+			}
+		}
+	}
+	//flush full input
+	else if(flushType == 1){
+		while(read(settings->tty_fd,&singleByte,1) > 0){
+			// check if time out is reached
+			gettimeofday(&t1, NULL);
+			if (elapsed_ms(t0, t1) > flush_timeout_ms) {
+				printf("INFO: Flushing failed. (time out)\n\r"); // TIME OUT!		
+				return false;
+			}
+		}
+	}
+	else{
+		printf("INFO: Flushing failed. (invalid flushing type flag)\n\r");
+		return false;		
+	}
+	return true;
+}
 
 /*-----------------------------------------------------------------*/
 
