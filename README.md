@@ -1,13 +1,23 @@
-# razorAHRS
-Program to read binary data stream of the Razor AHRS headtracker, written in C.
+Parser for headtracker razorAHRS
+===
 
-Compile all files with shell command
-	$ sh compile.sh
-It will compile automatically the source code located at /src an save the binary program files at /bin .
+Program to read binary data stream of the [RazorAHRS](https://github.com/ptrbrtz/razor-9dof-ahrs) headtracker, written in C.
 
-If you want to start the reader razorAHRS connected to a virtual tracker:
-	$ sh start.sh
-It will 
-	1. create a null modem
-	2. start a virtual tracker
-	3. start the reader and print out the data until you finish by typing spacebar and enter
+Contains a parser and a virtual headtracker.
+
+Build
+---
+
+	$ cmake . && make
+
+
+Virtual Tracker
+---
+
+If you want to start the reader razorAHRS connected to a virtual tracker: $ sh start.sh
+
+It will:
+
+1. Create a _virtual_ serial port,
+2. Start a virtual tracker, and
+3. Start the reader and print out the data until spacebar or enter is pressed.
