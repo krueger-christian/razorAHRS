@@ -95,6 +95,63 @@
 
 /*-----------------------------------------------------------------*/
 
+	/* data type to store the calibration values
+		                |        |        |          |          |          |
+		TYPE OF CALIBR. |   0    |   1    |     2    |     3    |     4    |    5
+		________________|________|________|__________|__________|__________|_________
+		                |        |        |          |          |          |
+	     accelerometer  | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
+		----------------|--------|--------|----------|----------|----------|---------
+		 magnetometer   | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
+		----------------|--------|--------|----------|----------|----------|---------
+		 gyrometer      | x      | x_aver | y        | y_aver   | z        | z_aver
+		                |        |        |          |          |          |
+	 */
+	struct calibData{
+
+		/*
+		 * Flag that is managed by valueCheck() function
+		 * true: the current values don't match the valid range
+		 * false: the current values are inside the valid range*/
+		bool data_fail;
+
+		/*
+		 * 0: accelerometer
+		 * 1: magnetometer
+		 * 2: gyroscope
+		 */
+		int calibType;
+
+		bool calibTypeSet;
+
+		float acc_xmin;
+		float acc_xmax;
+		float acc_ymin;
+		float acc_ymax;
+		float acc_zmin;
+		float acc_zmax;
+
+		float gyr_x;
+		float gyr_y;
+		float gyr_z;
+
+		/* array that stores the sensor data
+		 *
+		 * values[0] = Yaw
+		 * values[1] = Pitch
+	 	 * values[2] = Roll  */
+		float values[6];
+
+		/* union structure to store blocks of 
+		 *  4 Byte received by the tracker (equal 
+		 *  to the size of a single float value.
+		 *  for further information look at 
+		 *  razorTools.h */
+		razorBuffer floatBuffer;
+	};
+
+/*-----------------------------------------------------------------*/
+
     /* measuring elapsed time:
 	 * During synchronization we need to check the time. Ones to know,
 	 * when we have to send a new request to the tracker/board, second 
