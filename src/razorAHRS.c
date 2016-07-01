@@ -32,7 +32,7 @@
 #include <termios.h>
 #include <string.h> // needed for memset
 #include <sys/time.h>
-
+#include <pthread.h>
 /* 
  * includes the termios settings 
  * of the standard IO and the tracker IO
@@ -83,6 +83,10 @@ const int flush_timeout_ms = 1000;
  ****************************************************************/
 
 /*-----------------------------------------------------------------*/
+
+
+
+
 
 /* INITIALIZING THE TRACKER
  *
@@ -212,29 +216,52 @@ bool initRazor(struct adjustment *settings) {
 
 /*-----------------------------------------------------------------*/
 
-bool valueCheck(struct adjustment *settings, struct razorData *data) {
-    if ((data->values[0] > 360) || (data->values[1] > 360) || (data->values[0] > 360)) {
-        settings->messageOn = false;
-        settings->synchronized = false;
-        initRazor(settings);
-        settings->messageOn = true;
-        data->data_fail = true;
+bool valueCheck(razor_thread_manager *manager) {
 
-        if (settings->synchronized == false) {
+	pthread_mutex_lock(&manager->data_protect);
+	pthread_mutex_lock(&manager->settings_protect);
+
+    if ((manager->data->values[0] > 360) || \
+		(manager->data->values[1] > 360) || \
+		(manager->data->values[0] > 360)) {
+
+        manager->settings->messageOn = false;
+        manager->settings->synchronized = false;
+        initRazor(manager->settings);
+        manager->settings->messageOn = true;
+        manager->data->data_fail = true;
+
+        if (manager->settings->synchronized == false) {
             printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
             return false;
         } 
-        if (settings->streaming_Mode == single) {
-            write(settings->tty_fd, "#o0", 3); // disable output continuous stream
+        if (manager->settings->streaming_Mode == single) {
+            write(manager->settings->tty_fd, "#o0", 3); // disable output continuous stream
+
+			pthread_mutex_unlock(&manager->data_protect);
+			pthread_mutex_unlock(&manager->settings_protect);
             razorSleep(20);
+			pthread_mutex_lock(&manager->data_protect);
+			pthread_mutex_lock(&manager->settings_protect);
         }
-    } else data->data_fail = false;
+    } else manager->data->data_fail = false;
+
+	pthread_mutex_unlock(&manager->data_protect);
+	pthread_mutex_unlock(&manager->settings_protect);
+
     return true;
 }
 
 /*-----------------------------------------------------------------*/
 
-bool readContinuously(struct adjustment *settings, struct razorData *data) {
+bool readContinuously(razor_thread_manager *manager) {
+
+	struct adjustment *settings = manager->settings;
+	struct razorData *data      = manager->data;
+
+
+	pthread_mutex_lock(&manager->settings_protect);
+
     // Buffer to store user input from console
     unsigned char console = 'D';
     char singleByte = 'D';
@@ -245,7 +272,13 @@ bool readContinuously(struct adjustment *settings, struct razorData *data) {
     bool printData;
     if (settings->messageOn) printData = false;
     else printData = true;
-    bool stopRead = false;
+
+	bool *stopRead;
+	if(settings->tracker_should_exit != NULL) stopRead = settings->tracker_should_exit;
+    else{
+		stopRead = (bool*) malloc(sizeof(bool));
+		stopRead = false;
+	}
 
     if (settings->messageOn) {
         printf("_________________________________________________\r\n");
@@ -259,6 +292,7 @@ bool readContinuously(struct adjustment *settings, struct razorData *data) {
         //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
         if (result == 1) {
+			pthread_mutex_lock(&manager->data_protect);
             data->floatBuffer.ch[bufferInput] = singleByte;
             bufferInput++;
 
@@ -267,17 +301,23 @@ bool readContinuously(struct adjustment *settings, struct razorData *data) {
                 values_pos++;
                 bufferInput = 0;
             }
+			pthread_mutex_unlock(&manager->data_protect);
         }
 
         // if new data is available on the serial port, print it out
         if (values_pos == 3) {
-            if (valueCheck(settings, data) == false) return false;
+            if (valueCheck(manager) == false) return false;
+			pthread_mutex_lock(&manager->data_protect);
             if ((printData) && (data->data_fail == false)) {
                 printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
 				data->values[0], data->values[1], data->values[2]);
             }
+			pthread_mutex_unlock(&manager->data_protect);
+
             values_pos = 0;
+			pthread_mutex_unlock(&manager->settings_protect);
             razorSleep(20);
+			pthread_mutex_lock(&manager->settings_protect);
         }
 
         // if new data is available on the console, send it to the serial port
@@ -289,12 +329,17 @@ bool readContinuously(struct adjustment *settings, struct razorData *data) {
 
     // reactivate text mode
     write(settings->tty_fd, "#ot", 3);
+	pthread_mutex_unlock(&manager->data_protect);
     return true;
 }
 
 /*-----------------------------------------------------------------*/
 
-bool readSingle(struct adjustment *settings, struct razorData *data) {
+//TODO function isnt thread save yet
+bool readSingle(razor_thread_manager *manager) {
+
+	struct adjustment *settings = manager->settings;
+	struct razorData *data      = manager->data;
     // Buffer to store user input from console
     unsigned char console = 'D';
     char singleByte = 'D';
@@ -314,7 +359,7 @@ bool readSingle(struct adjustment *settings, struct razorData *data) {
     gettimeofday(&t0, NULL);
     t1 = t0;
 
-    bool stopRead = false;
+	bool stopRead = false;
 
     if (settings->messageOn) {
         printf("_________________________________________________\r\n");
@@ -351,7 +396,7 @@ bool readSingle(struct adjustment *settings, struct razorData *data) {
 
                     // if new data is available on the serial port, print it out
                     if (values_pos == 3) {
-                        if (valueCheck(settings, data) == false) return false;
+                        if (valueCheck(manager) == false) return false;
                         if (data->data_fail == false) {
                             printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n",\
 							data->values[0], data->values[1], data->values[2]);
@@ -392,31 +437,60 @@ bool readSingle(struct adjustment *settings, struct razorData *data) {
 
 /*-----------------------------------------------------------------*/
 
-bool readingRazor(struct adjustment *settings, struct razorData *data) {
+void* readingRazor(razor_thread_manager *manager) {
+
+	struct adjustment *settings = manager->settings;
+	struct razorData *data = manager->data;
+
     if (initRazor(settings) == false) return false;
 
+	pthread_mutex_lock(&manager->settings_protect);
     if (settings->streaming_Mode == continuous) {
-        readContinuously(settings, data);
+		pthread_mutex_unlock(&manager->settings_protect);
+        readContinuously(manager);
     } else if (settings->streaming_Mode == single) {
-        readSingle(settings, data);
+		pthread_mutex_unlock(&manager->settings_protect);
+		readSingle(manager);
     } else {
+		pthread_mutex_unlock(&manager->settings_protect);
         printf("INFO: No streaming mode selected!");
-        return 1;
+        pthread_exit(NULL);
     }
 
-    return true;
+    pthread_exit(NULL);
 }
 
 /*-----------------------------------------------------------------*/
 
-int razorAHRS(speed_t baudRate, char* port, int mode) {
+razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
+	razor_thread_manager *manager;
+	manager = (razor_thread_manager*) calloc(1, sizeof(razor_thread_manager));
+
     // setting description that is used during the whole process
-    struct adjustment *settings;
-    settings = (struct adjustment*) calloc(1, sizeof (struct adjustment));
+    manager->settings = (struct adjustment*) calloc(1, sizeof (struct adjustment));
 
     // construction to store the data
-    struct razorData *data;
-    data = (struct razorData*) calloc(1, sizeof (struct razorData));
+    //struct razorData *data;
+	manager->data = (struct razorData*) calloc(1, sizeof (struct razorData));
+
+	pthread_mutex_init(&manager->settings_protect, NULL);
+	pthread_mutex_init(&manager->data_protect, NULL);
+
+    // saving port id and name in the settings
+    manager->settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);
+    manager->settings->port = port;
+    manager->settings->streaming_Mode = (mode == 1) ? single : continuous;
+    manager->settings->messageOn = message;
+
+	return manager;
+
+}
+
+int razorAHRS_start(razor_thread_manager *manager){
+
+	struct adjustment *settings = manager->settings;
+
+	pthread_mutex_lock(&manager->settings_protect);
 
     //saving current termios configurations of STDOUT_FILENO
     if (tcgetattr(STDOUT_FILENO, &settings->old_stdio) != 0) {
@@ -428,15 +502,11 @@ int razorAHRS(speed_t baudRate, char* port, int mode) {
     stdio_Config();
     settings->stdio_config_changed = true;
 
-    // saving port id and name in the settings
-    settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);
-    settings->port = port;
-    settings->streaming_Mode = (mode == 1) ? single : continuous;
-    settings->messageOn = message;
+
     //saving current termios configurations of tty_fd
     if (tcgetattr(settings->tty_fd, &settings->old_tio) != 0) {
         settings->tio_config_changed = false;
-        printf("INFO: Saving configuration of %s failed.\n\r--> tcgetattr(fd, &old_tio)\r\n", port);
+        printf("INFO: Saving configuration of %s failed.\n\r--> tcgetattr(fd, &old_tio)\r\n", settings->port);
 
         /*reactivating the previous configurations of STDOUT_FILENO 
         because of breaking the process */
@@ -445,17 +515,29 @@ int razorAHRS(speed_t baudRate, char* port, int mode) {
         return -1;
     }
 
-    tio_Config(settings->tty_fd, baudRate);
+    tio_Config(settings->tty_fd, settings->baudRate);
     settings->tio_config_changed = true;
 
-    readingRazor(settings, data);
+	pthread_mutex_unlock(&manager->settings_protect);
 
-    // reactivating previous configurations of tty_fd and the STDOUT_FILENO
-    resetConfig(settings);
+    manager->thread_id = pthread_create(&manager->thread_id, NULL, (void*) &readingRazor, manager);
 
-    free(settings);
-    free(data);
 
     return 0;
 }
+
+int razorAHRS_quit(razor_thread_manager *manager){
+    // reactivating previous configurations of tty_fd and the STDOUT_FILENO
+	pthread_mutex_lock(&manager->settings_protect);    
+	resetConfig(manager->settings);
+	pthread_mutex_unlock(&manager->settings_protect);
+
+	pthread_mutex_destroy(&manager->settings_protect);
+	pthread_mutex_destroy(&manager->data_protect);
+
+    free(manager->settings);
+    free(manager->data);
+	return 0;
+}
+
 #endif // RAZORAHRS_C

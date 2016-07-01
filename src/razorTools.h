@@ -14,6 +14,7 @@
 
 #include <sys/time.h>
 #include <time.h>
+#include <pthread.h>
 
 /*-----------------------------------------------------------------*/
 
@@ -63,8 +64,19 @@
 		int vt_frequency;
 		int waitingTime;
 		bool synchronized;
+		bool *tracker_should_exit;
 		speed_t baudRate;
 	};
+
+/*-----------------------------------------------------------------*/
+
+	typedef struct r_thread_manager{
+		struct adjustment* settings;
+		struct razorData*  data;
+		pthread_mutex_t settings_protect;
+		pthread_mutex_t data_protect;
+		pthread_t thread_id;
+	} razor_thread_manager;
 
 /*-----------------------------------------------------------------*/
 

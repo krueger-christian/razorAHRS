@@ -51,11 +51,12 @@ int main(int argc, char* argv[]) {
         // quit
         if ((console == 'q') || (console == 'Q')) return -1;
 
-        // read one frame
+		// mode: contonuous streaming
         if ((console == 'c') || (console == 'C')) {
             mode = 0;
             break;
         }
+        // mode: read one frame per request
         if ((console == 's') || (console == 'S')) {
             mode = 1;
             break;
@@ -63,11 +64,15 @@ int main(int argc, char* argv[]) {
         printf("\n  !\n\r    INVALID INPUT\n\n\r");
     }
 
-    if (razorAHRS(B57600, argv[1], mode) == 0) {
-        printf("\n_________________________________________________\r\n");
-        return 0;
-    } else {
-        printf("\n_________________________________________________\r\n");
-        return -1;
-    }
+	razor_thread_manager* manager = razorAHRS(B57600, argv[1], mode);
+	if(razorAHRS_start(manager) < 0) return -1;
+
+	pthread_mutex_lock(&manager->settings_protect);
+	while(manager->settings->tracker_should_exit == false){
+	pthread_mutex_unlock(&manager->settings_protect);
+
+	}
+
+    printf("\n_________________________________________________\r\n");
+    return 0;
 }
