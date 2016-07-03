@@ -64,14 +64,13 @@ int main(int argc, char* argv[]) {
         printf("\n  !\n\r    INVALID INPUT\n\n\r");
     }
 
-	razor_thread_manager* manager = razorAHRS(B57600, argv[1], mode);
+    razor_thread_manager* manager = razorAHRS(B57600, argv[1], mode);
+
+
+    
 	if(razorAHRS_start(manager) < 0) return -1;
 
-	pthread_mutex_lock(&manager->settings_protect);
-	while(manager->settings->tracker_should_exit == false){
-	pthread_mutex_unlock(&manager->settings_protect);
-
-	}
+	pthread_join(manager->thread, NULL);
 
     printf("\n_________________________________________________\r\n");
     return 0;

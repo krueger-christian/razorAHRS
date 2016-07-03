@@ -75,7 +75,10 @@
 		struct razorData*  data;
 		pthread_mutex_t settings_protect;
 		pthread_mutex_t data_protect;
-		pthread_t thread_id;
+		pthread_cond_t data_updated;
+		int thread_id;
+		pthread_t thread;
+		bool printData;
 	} razor_thread_manager;
 
 /*-----------------------------------------------------------------*/
@@ -264,5 +267,7 @@ bool razorFlush(struct adjustment* settings, int flush_timeout_ms, int flushType
 		return true;	
 	}
 
+
+int razorAHRS_quit(razor_thread_manager *manager);
 
 #endif // RAZORTOOLS_H
