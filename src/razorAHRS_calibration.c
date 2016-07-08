@@ -2,6 +2,7 @@
 #define RAZORAHRS_CALIB_C
 
 #include "razorAHRS.c"
+#include "razorCalib.h"
 
 
 bool checkCalibToken(struct adjustment *settings){
@@ -152,80 +153,57 @@ bool calibratingRazor(struct adjustment *settings, struct calibData *data){
 
 			//if(valueCheck(settings, data) == false) return false;
 			//if( (printData) && (data->data_fail == false) ){
-			if(data->calibType == 0){
+//			if(data->calibType == 0){
 
 				if(headerSet[0] == false){
-
-					if(step == 0){
-
-						printf("         ||           Point board down                 \r\n");
-						printf("         ||           with connector                   \r\n");
-						printf("         ||           holes (x-axis)                   \r\n");
-						printf("         ||           and tilt slightly                \r\n");
-						printf("      __|  |__                                         \r\n");
-						printf("     |  |__|  |            ||                          \r\n");
-						printf("     |  _||_  |           _||_                         \r\n");
-						printf("     | |||||| |           \\  /                         \r\n");
-						printf("     | |||||| |            \\/                          \r\n");
-						printf("     | |||||| |                                        \r\n");
-						printf("     | ...... |                                        \r\n");
-						printf("                                                       \r\n");
-						printf("                      PRESS K to keep min. x-value     \r\n");
-						printf("                                                       \r\n");
-						printf("   ACCELEROMETER\r\n");
-						printf("--------|--------||-----------------||--------|--------\r\n");
-						printf("  x min |  x max ||  y min |  y max ||  z min |  z max \r\n");
-						printf("--------|--------||--------|--------||--------|--------\r\n");
-						headerSet[0] = true;
-					}
-					else if(step == 1){
-						printf("\r\n\r\n");
-						printf("     | ...... |       Point board up                   \r\n");
-						printf("     | |||||| |       with connector                   \r\n");
-						printf("     | |||||| |       holes (x-axis)                   \r\n");
-						printf("     | |||||| |       and tilt slightly                \r\n");
-						printf("     |   ||   |                                        \r\n");
-						printf("     |__|  |__|            /\\                          \r\n");
-						printf("        |  |              /  \\                         \r\n");
-						printf("         ||                ||                          \r\n");
-						printf("         ||                ||                          \r\n");
-						printf("         ||                                            \r\n");
-						printf("         ||                                            \r\n");
-						printf("                                                       \r\n");
-						printf("                      PRESS K to keep max. x-value     \r\n");
-						printf("                                                       \r\n");
-						printf("   ACCELEROMETER\r\n");
-						printf("--------|--------||-----------------||--------|--------\r\n");
-						printf("  x min |  x max ||  y min |  y max ||  z min |  z max \r\n");
-						printf("--------|--------||--------|--------||--------|--------\r\n");
-						headerSet[0] = true;
-					}
+					print_hint(step);
+					headerSet[0] = true;
 				}
 				else{
-					printf(" %6.1f | %6.1f || %6.1f | %6.1f || %6.1f | %6.1f \r", \
-					data->values[0], data->values[1], \
-					data->values[2], data->values[3], \
-					data->values[4], data->values[5]);
+					if(step <= 7){
+						//       x min | x max || y min | y max || z min | z max
+						printf(" %6.1f | %6.1f || %6.1f | %6.1f || %6.1f | %6.1f \r", \
+						data->values[0], data->values[1], \
+						data->values[2], data->values[3], \
+						data->values[4], data->values[5]);
+					}
+
 					if(keepValue == true){
 						headerSet[0] = false; 
 						keepValue = false;
 						if     (step == 0) data->acc_xmin = data->values[0];
 						else if(step == 1) data->acc_xmax = data->values[1];
+						else if(step == 2) data->acc_ymin = data->values[2];
+						else if(step == 3) data->acc_ymax = data->values[3];
+						else if(step == 4) data->acc_zmin = data->values[4];
+						else if(step == 5) data->acc_zmin = data->values[5];
+						//else if(step == 6) {}
+						else if(step == 7){
+
+							printf("\r\n\n");
+							for(int i = 10; i > 0; i--) {
+								printf("\r            Wait for %d seconds                         ", i);
+								razorSleep(1000);
+							}
+							printf("\r\n");
+							data->gyr_x = data->values[1];
+							data->gyr_y = data->values[3];
+							data->gyr_z = data->values[5];
+
+							print_hint(8);
+							print_result(data);
+							step++;
+							stopRead = true;					
+						}
 					}
 				}
-			}
-			else if(data->calibType == 1){			
-				printf("MAGNETOMETER: x [%6.1f, %6.1f] \t y [%6.1f, %6.1f] \t z [%6.1f, %6.1f] \r", \
-				data->values[0], data->values[1], \
-				data->values[2], data->values[3], \
-				data->values[4], data->values[5]);
-			}
-			else if(data->calibType == 2){			
-				printf("GYROSCOPE: x %6.1f \t y %6.1f \t z %6.1f \r", \
-				data->values[1], \
-				data->values[3], \
-				data->values[5]);
-			}
+//			}
+//			else if(data->calibType == 2){			
+//				printf("GYROSCOPE: x %6.1f \t y %6.1f \t z %6.1f \r", \
+//				data->values[1], \
+//				data->values[3], \
+//				data->values[5]);
+//			}
 			values_pos = 0;
 			data->calibTypeSet = false;
 			razorSleep(20);
@@ -234,13 +212,31 @@ bool calibratingRazor(struct adjustment *settings, struct calibData *data){
 		// if new data is available on the console, send it to the serial port
         if (read(STDIN_FILENO,&console,1)>0){  
 			if((console == 'q') ||  (console == 'Q')) stopRead = true;
-			else if((console == 'n') ||  (console == 'N')) write(settings->tty_fd,"#on",3);
-			else if((console == 'k') ||  (console == 'K')) {keepValue = true; step++;}
+			//else if((console == 'n') ||  (console == 'N')) write(settings->tty_fd,"#on",3);
+			else if((console == 'k') ||  (console == 'K')) {
+				keepValue = true;
+				if(step == 5) {
+					write(settings->tty_fd,"#on",3); // switch to magnetometer callibration (jump over)
+					razorSleep(20);
+					write(settings->tty_fd,"#on",3); // switch to gyroscope callibration
+					razorSleep(20);
+				}				
+				else write(settings->tty_fd,"#oc",3); // restart callibration (inner mode)
+				razorSleep(20);
+				step++;
+			}
 		}
 	}
 
+	for(int i = 0; i < 3; i++){
+		if(headerSet[i] == false) {
+			write(settings->tty_fd,"#on",3);
+			razorSleep(20);
+		}
+	}
 	// reactivate text mode
 	write(settings->tty_fd,"#ot",3);
+	razorSleep(20);
 
 	printf("\r\n");
 	return true;	

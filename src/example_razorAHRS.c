@@ -69,6 +69,17 @@ int main(int argc, char* argv[]) {
 
     
 	if(razorAHRS_start(manager) < 0) return -1;
+	
+	pthread_t printer;
+	razorPrinter_start(manager, &printer);
+
+	char consol = 'D';
+	while(manager->razor_is_running){
+        if (read(STDIN_FILENO, &consol, 1) > 0) {
+          	if (consol == ' ') manager->razor_is_running = false;
+        }
+		razorSleep(20);
+	}
 
 	pthread_join(manager->thread, NULL);
 

@@ -308,7 +308,8 @@ bool readContinuously(razor_thread_manager *manager) {
     int bufferInput = 0;
 
 
-    while (!stopRead) {
+    //while (!stopRead) {
+	while(manager->razor_is_running){
         result = read(settings->tty_fd, &singleByte, 1);
         //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
@@ -333,11 +334,16 @@ bool readContinuously(razor_thread_manager *manager) {
             pthread_mutex_lock(&manager->settings_protect);
 
 			pthread_mutex_lock(&manager->data_protect);
-            if ((printData) && (data->data_fail == false)) {
+			/*            
+			if ((printData) && (data->data_fail == false)) {
                 printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
 				data->values[0], data->values[1], data->values[2]);
             }
+			*/
+			manager->printData = true;
 			pthread_mutex_unlock(&manager->data_protect);
+
+			pthread_cond_broadcast(&manager->data_updated);
 
             values_pos = 0;
 			pthread_mutex_unlock(&manager->settings_protect);
@@ -345,11 +351,14 @@ bool readContinuously(razor_thread_manager *manager) {
 			pthread_mutex_lock(&manager->settings_protect);
         }
 
+		/*
         // if new data is available on the console, send it to the serial port
         if (read(STDIN_FILENO, &console, 1) > 0) {
-            if ((printData == false) && (console == ' ')) printData = true;
-            else if (console == ' ') stopRead = true;
+            //if ((printData == false) && (console == ' ')) printData = true;
+            //else if (console == ' ') stopRead = true;
+			if (console == ' ') manager->razor_is_running = false;
         }
+		*/
     }
 
     // reactivate text mode
@@ -500,6 +509,7 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
 
 	pthread_mutex_init(&manager->settings_protect, NULL);
 	pthread_mutex_init(&manager->data_protect, NULL);
+	pthread_cond_init(&manager->data_updated, NULL);
 
     // saving port id and name in the settings
     manager->settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);
@@ -507,6 +517,7 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
     manager->settings->port = port;
     manager->settings->streaming_Mode = (mode == 1) ? single : continuous;
     manager->settings->messageOn = message;
+	manager->printData = false;
 
 	return manager;
 }
@@ -519,6 +530,7 @@ int razorAHRS_quit(razor_thread_manager *manager){
 
     pthread_mutex_destroy(&manager->settings_protect);
     pthread_mutex_destroy(&manager->data_protect);
+	pthread_cond_destroy(&manager->data_updated);
 
     free(manager->settings);
     free(manager->data);
@@ -562,6 +574,9 @@ int razorAHRS_start(razor_thread_manager *manager){
         razorAHRS_quit(manager);
         return -1;
     }
+
+	manager->razor_is_running = true;
+
     manager->thread_id = pthread_create(&manager->thread, NULL, (void*) &readingRazor, manager);
 
     return 0;
@@ -573,23 +588,22 @@ void* razorPrinter(void* args){
 
     razor_thread_manager* manager = (razor_thread_manager*) args;
 
-    print = true;
 
-    while(print){
+	while(manager->razor_is_running){
 
-        pthread_mutex_lock(&manager->data_protect);
-        while( !manager->printData ) pthread_cond_wait(&manager->data_updated, &manager->data_protect);
-        pthread_mutex_unlock(&manager->data_protect);
+		pthread_mutex_lock(&manager->data_protect);
+		while(!manager->printData){
+			pthread_cond_wait(&manager->data_updated, &manager->data_protect);
+		}
+		pthread_mutex_unlock(&manager->data_protect);
 
-        pthread_mutex_lock(&manager->data_protect);
-
-        printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n",\
-                    manager->data->values[0], manager->data->values[1], manager->data->values[2]);
-        manager->printData = false;
-
-        pthread_mutex_unlock(&manager->data_protect);
-
-    }
+		pthread_mutex_lock(&manager->data_protect);
+        printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
+				manager->data->values[0], manager->data->values[1], manager->data->values[2]);
+		manager->printData = false;
+		pthread_mutex_unlock(&manager->data_protect);
+	}
+	
 
     pthread_exit(NULL);
 }

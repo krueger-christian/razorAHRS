@@ -79,6 +79,7 @@
 		int thread_id;
 		pthread_t thread;
 		bool printData;
+		bool razor_is_running;
 	} razor_thread_manager;
 
 /*-----------------------------------------------------------------*/
