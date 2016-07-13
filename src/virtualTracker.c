@@ -13,7 +13,7 @@
 #include <errno.h>
 
 #include "config.h"
-#include "razorTools.h"
+#include "virtualRazorTools.h"
 
 struct vt_adjustment {
     struct termios old_tio;
