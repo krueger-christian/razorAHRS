@@ -45,10 +45,12 @@
 
 	struct adjustment{
 		struct termios old_tio;
+		struct termios old_stdio;
 		outputFormat output_Format;
 		strMode streaming_Mode;
 		bool messageOn;
 		bool tio_config_changed;
+		bool stdio_config_changed;
 		char *port;
     	int tty_fd;
 		int vt_frequency;
@@ -248,6 +250,25 @@ bool razorFlush(struct adjustment* settings, int flush_timeout_ms, int flushType
 
 /*----------------------------------------------------------------------------------------------------*/
 
+void stdio_Config() {
+
+    struct termios stdio;
+
+    memset(&stdio, 0, sizeof (stdio));
+    stdio.c_iflag = 0;
+    stdio.c_oflag = 0;
+    stdio.c_cflag = 0;
+    stdio.c_lflag = 0;
+    stdio.c_cc[VMIN] = 1;
+    stdio.c_cc[VTIME] = 10;
+    tcsetattr(STDOUT_FILENO, TCSANOW, &stdio);
+    tcsetattr(STDOUT_FILENO, TCSAFLUSH, &stdio);
+    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK); // make the reads non-blocking
+
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
 void tio_Config(int tty_fd, speed_t baudRate) {
 
     struct termios tio;
@@ -271,6 +292,9 @@ void resetConfig(struct adjustment *settings) {
         tcsetattr(settings->tty_fd, TCSANOW, &settings->old_tio);
     }
 
+    if (settings->stdio_config_changed) {
+        tcsetattr(STDOUT_FILENO, TCSANOW, &settings->old_stdio);
+    }
     close(settings->tty_fd);
 }
 

@@ -1,23 +1,20 @@
 /*****************************************************************
  *                                                               *
- * C-coded functions to read the the measuring data of the       *
- * 9 Degree of Measurement Attitude and Heading Reference System *
- * of Sparkfun's "9DOF Razor IMU" and "9DOF Sensor Stick"        *
+ *     C-coded functions to read the the measuring data of       *
+ *     the 9 Degree of Measurement Attitude and Heading          *
+ *     Reference System of Sparkfun's "9DOF Razor IMU"           *
+ *     and "9DOF Sensor Stick"                                   *
  *                                                               *
- * Developed at Quality & Usability Lab,                         *
- * Deutsche Telekom Laboratories & TU Berlin,                    *
- * written by Christian Krüger,                                  *
- * (C) 2016                                                      *
- *                                                               *
- *                                                               *
- * a former version, used as reference and coded in C++, was     *
- * written by Peter Bartz:                                       *
+ *     a former version, used as reference and coded in C++      *
+ *     was written by Peter Bartz:                               *
  *     https://github.com/ptrbrtz/razor-9dof-ahrs                *
  *                                                               *
+ *     Quality & Usability Lab, TU Berlin                        *
+ *     & Deutsche Telekom Laboratories                           *
+ *     Christian Krüger                                          *
+ *     2016                                                      * 
  *                                                               *
- * --> more informations and changeable user settings            *
- *     below after the preprocessor instructions or              *  
- *     on github:                                                *
+ *     further informations:                                     *
  *     https://github.com/krueger-christian/razorAHRS            *
  *                                                               *
  ****************************************************************/
@@ -27,68 +24,32 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <string.h> // needed for memset
 #include <sys/time.h>
 #include <pthread.h>
-/* 
- * includes the termios settings 
- * of the standard IO and the tracker IO
- * and a reset function resetConfig() 
- */
-#include "config.h"
 
-/*
- * includes several types of storing 
+/* includes several types of storing 
  * data and settings as well as the
  * functions
  *   - razorsleep( int milliseconds)
- *   - long elapsed_ms(struct timeval start, struct timeval end)
+ *   - long elapsed_ms(struct timeval start, struct timeval end),
+ *     returning the difference between two points in time
+ *   - stdio_Config(),
+ *     configuring the standart output (not necessary)
+ *   - tio_Config(int tty_fd, speed_t baudRate)
+ *     configuring the termios controlled serial output
+ *   - resetConfig(struct adjustment *settings)
  */
 #include "razorTools.h"
 
+#include "razorAHRS.h"
+#include "config.h" // includes user settings
 
-/****************************************************************
- ***                  USER SELECTION AREA                     ***
- ****************************************************************/
-
-/*  => select out of {single, continuous}
- *
- *  tracker is readable in two different 
- *  streaming modes:
- *  1. single mode: 
- *     the tracker sends only a frame 
- *     after request
- *  2. continuous mode: 
- *     the tracker sends permanently data
- *     (every 20ms one frame, 12 byte) */
-//strMode mode = continuous;
-
-/* time limit (milliseconds) to wait 
- * during synchronization phase */
-const int connect_timeout_ms = 5000;
-
-/* time limit (milliseconds) to wait 
- * during flushing the input line to razor */
-const int flush_timeout_ms = 1000;
-
-/* disable/enable the output of program 
- * status reports on the console */
-#define message true
-
-bool print = false;
-
-/****************************************************************
- ***                END OF USER SELECTION AREA                ***
- ****************************************************************/
-
-/*-----------------------------------------------------------------*/
-
-
-
-
+/*----------------------------------------------------------------------------------------------------*/
 
 /* INITIALIZING THE TRACKER
  *
@@ -100,7 +61,6 @@ bool print = false;
  * ... returns false, if connection or synchronization failed */
 bool initRazor(struct adjustment *settings) {
 
-    
     char input = 'D'; // Buffer to store one byte
 
     /* We know the length of the expected token from the arduino code (1)
@@ -164,11 +124,9 @@ bool initRazor(struct adjustment *settings) {
     // send request for synchronization token
     if (settings->messageOn) printf("\n  – SYNCHRONIZING: ");
 
-
     for(int i = 0; (i <= 10) && (write(settings->tty_fd, "#s00", 4) != 4); i++){
         razorSleep(20);
     }
-
 
     /* wait a little bit to get sure that the
      * tracker read the send signals */
@@ -233,7 +191,7 @@ bool initRazor(struct adjustment *settings) {
     }
 }
 
-/*-----------------------------------------------------------------*/
+/*----------------------------------------------------------------------------------------------------*/
 
 bool valueCheck(razor_thread_manager *manager) {
 
@@ -251,11 +209,16 @@ bool valueCheck(razor_thread_manager *manager) {
         manager->data->data_fail = true;
 
         if (manager->settings->synchronized == false) {
-            printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
+            if(manager->settings->messageOn)
+				printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
+			pthread_mutex_unlock(&manager->data_protect);
+			pthread_mutex_unlock(&manager->settings_protect);
             return false;
         } 
         if (manager->settings->streaming_Mode == single) {
-            write(manager->settings->tty_fd, "#o0", 3); // disable output continuous stream
+
+			// disable output continuous stream
+            write(manager->settings->tty_fd, "#o0", 3);
 
 			pthread_mutex_unlock(&manager->data_protect);
 			pthread_mutex_unlock(&manager->settings_protect);
@@ -271,49 +234,29 @@ bool valueCheck(razor_thread_manager *manager) {
     return true;
 }
 
-/*-----------------------------------------------------------------*/
+/*----------------------------------------------------------------------------------------------------*/
 
 bool readContinuously(razor_thread_manager *manager) {
 
 	struct adjustment *settings = manager->settings;
 	struct razorData *data      = manager->data;
 
-
+	// ensure that currently only this function changes razor settings
 	pthread_mutex_lock(&manager->settings_protect);
 
-    // Buffer to store user input from console
-    unsigned char console = 'D';
-    char singleByte = 'D';
-
-    size_t values_pos = 0;
     write(settings->tty_fd, "#ob", 3); // just to ensure binary output
 
-    bool printData;
-    if (settings->messageOn) printData = false;
-    else printData = true;
-
-	bool *stopRead;
-	if(settings->tracker_should_exit != NULL) stopRead = settings->tracker_should_exit;
-    else{
-		stopRead = (bool*) malloc(sizeof(bool));
-		stopRead = false;
-	}
-
-    if (settings->messageOn) {
-        printf("_________________________________________________\r\n");
-        printf("\n  !\n\r    PRESS SPACEBAR TO START/STOP SHOWING DATA\n\n\n\r");
-    }
-
+    char singleByte = 'D';
     int result;
     int bufferInput = 0;
+    size_t values_pos = 0;
 
-
-    //while (!stopRead) {
 	while(manager->razor_is_running){
         result = read(settings->tty_fd, &singleByte, 1);
         //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
         if (result == 1) {
+			// ensure that currently only this function changes razor data
 			pthread_mutex_lock(&manager->data_protect);
             data->floatBuffer.ch[bufferInput] = singleByte;
             bufferInput++;
@@ -326,23 +269,23 @@ bool readContinuously(razor_thread_manager *manager) {
 			pthread_mutex_unlock(&manager->data_protect);
         }
 
-        // if new data is available on the serial port, print it out
+        // if 3 byte are read put them into the data structure
         if (values_pos == 3) {
 
+			/* before storing the input, check if it fits 
+			 * in the valid range */
             pthread_mutex_unlock(&manager->settings_protect);
-            if (valueCheck(manager) == false) return false;
+            if (valueCheck(manager) == false){
+			    pthread_mutex_unlock(&manager->settings_protect);
+				return false;
+			}
             pthread_mutex_lock(&manager->settings_protect);
 
 			pthread_mutex_lock(&manager->data_protect);
-			/*            
-			if ((printData) && (data->data_fail == false)) {
-                printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
-				data->values[0], data->values[1], data->values[2]);
-            }
-			*/
-			manager->printData = true;
-			pthread_mutex_unlock(&manager->data_protect);
 
+			// signal that the data was updated
+			manager->dataUpdated = true;
+			pthread_mutex_unlock(&manager->data_protect);
 			pthread_cond_broadcast(&manager->data_updated);
 
             values_pos = 0;
@@ -350,24 +293,13 @@ bool readContinuously(razor_thread_manager *manager) {
             razorSleep(20);
 			pthread_mutex_lock(&manager->settings_protect);
         }
-
-		/*
-        // if new data is available on the console, send it to the serial port
-        if (read(STDIN_FILENO, &console, 1) > 0) {
-            //if ((printData == false) && (console == ' ')) printData = true;
-            //else if (console == ' ') stopRead = true;
-			if (console == ' ') manager->razor_is_running = false;
-        }
-		*/
     }
 
-    // reactivate text mode
-    write(settings->tty_fd, "#ot", 3);
     pthread_mutex_unlock(&manager->settings_protect);
     return true;
 }
 
-/*-----------------------------------------------------------------*/
+/*----------------------------------------------------------------------------------------------------*/
 
 //TODO function isnt thread save yet
 bool readSingle(razor_thread_manager *manager) {
@@ -455,7 +387,8 @@ bool readSingle(razor_thread_manager *manager) {
 
                     // check if time out is reached
                     if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-                        if (settings->messageOn) printf("INFO: request failed. (time out)\n\r"); // TIME OUT!		
+						// TIME OUT!
+                        if (settings->messageOn) printf("INFO: request failed. (time out)\n\r");
                         break;
                     }
                 }
@@ -469,7 +402,7 @@ bool readSingle(razor_thread_manager *manager) {
     return true;
 }
 
-/*-----------------------------------------------------------------*/
+/*----------------------------------------------------------------------------------------------------*/
 
 void* readingRazor(razor_thread_manager *manager) {
 
@@ -494,7 +427,7 @@ void* readingRazor(razor_thread_manager *manager) {
     pthread_exit(NULL);
 }
 
-/*-----------------------------------------------------------------*/
+/*----------------------------------------------------------------------------------------------------*/
 
 razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
 	razor_thread_manager *manager;
@@ -517,25 +450,12 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
     manager->settings->port = port;
     manager->settings->streaming_Mode = (mode == 1) ? single : continuous;
     manager->settings->messageOn = message;
-	manager->printData = false;
+	manager->dataUpdated = false;
 
 	return manager;
 }
 
-int razorAHRS_quit(razor_thread_manager *manager){
-    // reactivating previous configurations of tty_fd and the STDOUT_FILENO
-    pthread_mutex_lock(&manager->settings_protect);    
-    resetConfig(manager->settings);
-    pthread_mutex_unlock(&manager->settings_protect);
-
-    pthread_mutex_destroy(&manager->settings_protect);
-    pthread_mutex_destroy(&manager->data_protect);
-	pthread_cond_destroy(&manager->data_updated);
-
-    free(manager->settings);
-    free(manager->data);
-    return 0;
-}
+/*----------------------------------------------------------------------------------------------------*/
 
 int razorAHRS_start(razor_thread_manager *manager){
 
@@ -543,20 +463,11 @@ int razorAHRS_start(razor_thread_manager *manager){
 
 	pthread_mutex_lock(&manager->settings_protect);
 
-    //saving current termios configurations of STDOUT_FILENO
-    if (tcgetattr(STDOUT_FILENO, &settings->old_stdio) != 0) {
-        settings->stdio_config_changed = false;
-        printf("INFO: Saving configuration STDOUT_FILENO failed.\n\r--> tcgetattr(fd, &old_stdtio)\r\n");
-        return -1;
-    }
-
-    stdio_Config();
-    settings->stdio_config_changed = true;
-
     //saving current termios configurations of tty_fd
     if (tcgetattr(settings->tty_fd, &settings->old_tio) != 0) {
         settings->tio_config_changed = false;
-        printf("INFO: Saving configuration of %s failed.\n\r--> tcgetattr(fd, &old_tio)\r\n", settings->port);
+        printf("INFO: Saving configuration of xx failed.\n\r\
+      --> tcgetattr(fd, &old_tio)\r\n", settings->port);
 
         /*reactivating the previous configurations of STDOUT_FILENO 
         because of breaking the process */
@@ -582,17 +493,48 @@ int razorAHRS_start(razor_thread_manager *manager){
     return 0;
 }
 
+/*----------------------------------------------------------------------------------------------------*/
 
+int razorAHRS_quit(razor_thread_manager *manager){
+	
+	bool err = false;
+
+    // reactivating previous configurations of tty_fd and the STDOUT_FILENO
+	pthread_mutex_lock(&manager->settings_protect);    
+
+    // reactivate text mode
+    write(manager->settings->tty_fd, "#ot", 3);
+
+    resetConfig(manager->settings);
+    pthread_mutex_unlock(&manager->settings_protect);
+
+    err = (pthread_mutex_destroy(&manager->settings_protect) != 0) ? true : false;
+    err = (pthread_mutex_destroy(&manager->data_protect)     != 0) ? true : false;
+	err = (pthread_cond_destroy(&manager->data_updated)      != 0) ? true : false;
+
+    free(manager->settings);
+    free(manager->data);
+    return (err) ? -1 : 0;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
+/*  stops the razor thread
+ */
+void razorAHRS_stop(razor_thread_manager *manager){
+	manager->razor_is_running = false;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
 
 void* razorPrinter(void* args){
 
     razor_thread_manager* manager = (razor_thread_manager*) args;
 
-
-	while(manager->razor_is_running){
+	while((manager->razor_is_running) && (manager->printer_is_running)){
 
 		pthread_mutex_lock(&manager->data_protect);
-		while(!manager->printData){
+		while(!manager->dataUpdated){
 			pthread_cond_wait(&manager->data_updated, &manager->data_protect);
 		}
 		pthread_mutex_unlock(&manager->data_protect);
@@ -600,7 +542,7 @@ void* razorPrinter(void* args){
 		pthread_mutex_lock(&manager->data_protect);
         printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
 				manager->data->values[0], manager->data->values[1], manager->data->values[2]);
-		manager->printData = false;
+		manager->dataUpdated = false;
 		pthread_mutex_unlock(&manager->data_protect);
 	}
 	
@@ -608,13 +550,17 @@ void* razorPrinter(void* args){
     pthread_exit(NULL);
 }
 
+/*----------------------------------------------------------------------------------------------------*/
 
 void razorPrinter_start(razor_thread_manager *manager, pthread_t *printer){
+	manager->printer_is_running = true;
     pthread_create(printer, NULL, (void*) &razorPrinter, manager);
 }
 
-int razorPrinter_quit(){
-    print = false;
+/*----------------------------------------------------------------------------------------------------*/
+
+int razorPrinter_quit(razor_thread_manager *manager){
+    manager->printer_is_running = false;
     return 0;
 }
 
