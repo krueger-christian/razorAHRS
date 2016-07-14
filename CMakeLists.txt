@@ -8,4 +8,6 @@ set(CMAKE_C_FLAGS "-O2 -g")
 add_subdirectory(src)
 
 add_executable(example_razorAHRS src/example_razorAHRS.c)
+target_link_libraries(example_razorAHRS LINK_PUBLIC pthread)
+
 add_executable(example_razorAHRSvirtual src/example_virtualTracker.c)
