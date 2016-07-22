@@ -275,10 +275,7 @@ bool readContinuously(razor_thread_manager *manager) {
 			/* before storing the input, check if it fits 
 			 * in the valid range */
             pthread_mutex_unlock(&manager->settings_protect);
-            if (valueCheck(manager) == false){
-			    pthread_mutex_unlock(&manager->settings_protect);
-				return false;
-			}
+            if (valueCheck(manager) == false) return false;
             pthread_mutex_lock(&manager->settings_protect);
 
 			pthread_mutex_lock(&manager->data_protect);
@@ -301,16 +298,14 @@ bool readContinuously(razor_thread_manager *manager) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
-//TODO function isnt thread save yet
 bool readSingle(razor_thread_manager *manager) {
 
 	struct adjustment *settings = manager->settings;
 	struct razorData *data      = manager->data;
-    // Buffer to store user input from console
-    unsigned char console = 'D';
-    char singleByte = 'D';
 
-    size_t values_pos = 0;
+	// ensure that currently only this function changes razor settings
+	pthread_mutex_lock(&manager->settings_protect);
+
     write(settings->tty_fd, "#o0", 3); // disable output continuous stream
     razorSleep(20);
     write(settings->tty_fd, "#ob", 3); // just to ensure binary output
@@ -318,86 +313,87 @@ bool readSingle(razor_thread_manager *manager) {
 
     if (razorFlush(settings, flush_timeout_ms, 1) == false) return false;
 
+    char singleByte = 'D';
+    int result;
+    int bufferInput = 0;
+    size_t values_pos = 0;
+
     /* variables to store time values
      * used to measure how long 
      * requesting takes */
     struct timeval t0, t1, t2;
-    gettimeofday(&t0, NULL);
-    t1 = t0;
 
-	bool stopRead = false;
+	while(manager->razor_is_running){
 
-    if (settings->messageOn) {
-        printf("_________________________________________________\r\n");
-        printf("\n  !\n\r    PRESS SPACEBAR TO REQUEST DATA FRAME\n\r");
-        printf("    PRESS     Q    TO QUIT\n\n\n\r");
-    }
+		while( !(manager->data->dataRequest) ){
+			pthread_cond_wait(&manager->update, &manager->settings_protect);
+		}
+		
+		if(write(settings->tty_fd, "#f", 2) != 2) printf("INFO: unable to send request\n\r"); // send request
+	    gettimeofday(&t0, NULL);
+	    t1 = t0;
 
-    int result;
-    int bufferInput = 0;
-    while (!stopRead) {
-        // if new data is available on the console...
-        if (read(STDIN_FILENO, &console, 1) > 0) {
-            // pressed q or Q --> quit
-            if ((console == 'q') || (console == 'Q')) stopRead = true;
-                // pressed spacebar --> read one frame
-            else if (console == ' ') {
-                write(settings->tty_fd, "#f", 2); // send request
-                gettimeofday(&t0, NULL);
-                t1 = t0;
-                while (1) {
-                    result = read(settings->tty_fd, &singleByte, 1);
-                    //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
+        while (manager->data->dataRequest) {
+        	result = read(settings->tty_fd, &singleByte, 1);
+            //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
-                    if (result == 1) {
-                        data->floatBuffer.ch[bufferInput] = singleByte;
-                        bufferInput++;
+            if (result == 1) {
+				// ensure that currently only this function changes razor data
+				pthread_mutex_lock(&manager->data_protect);
+		        data->floatBuffer.ch[bufferInput] = singleByte;
+		        bufferInput++;
 
-                        if (bufferInput == 4) {
-                            data->values[values_pos] = data->floatBuffer.f;
-                            values_pos++;
-                            bufferInput = 0;
-                        }
-                    }
-
-                    // if new data is available on the serial port, print it out
-                    if (values_pos == 3) {
-                        if (valueCheck(manager) == false) return false;
-                        if (data->data_fail == false) {
-                            printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n",\
-							data->values[0], data->values[1], data->values[2]);
-                        }
-                        values_pos = 0;
-
-                        // TODO
-                        razorSleep(20);
-                        break;
-                    }
-
-                    gettimeofday(&t2, NULL);
-
-                    if (elapsed_ms(t1, t2) > 200) {
-                        // 200ms elapsed since last request and no answer -> request synch again
-                        // (this happens when DTR is connected and Razor resets on connect)
-                        write(settings->tty_fd, "#f", 2);
-                        values_pos = 0;
-                        bufferInput = 0;
-                        t1 = t2;
-                    }
-
-                    // check if time out is reached
-                    if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-						// TIME OUT!
-                        if (settings->messageOn) printf("INFO: request failed. (time out)\n\r");
-                        break;
-                    }
-                }
+		        if (bufferInput == 4) {
+		            data->values[values_pos] = data->floatBuffer.f;
+		            values_pos++;
+		            bufferInput = 0;
+		        }
+				pthread_mutex_unlock(&manager->data_protect);
             }
-        }
-    }
 
-    // reactivate text mode
-    write(settings->tty_fd, "#ot", 3);
+            // if new data is available on the serial port, print it out
+            if (values_pos == 3) {
+				/* before storing the input, check if it fits 
+				 * in the valid range */
+		        pthread_mutex_unlock(&manager->settings_protect);
+		        if (valueCheck(manager) == false) return false;
+		        pthread_mutex_lock(&manager->settings_protect);
+
+				// signal that the data was updated
+				pthread_mutex_lock(&manager->data_protect);
+				manager->dataUpdated = true;
+				manager->data->dataRequest = false;
+				pthread_mutex_unlock(&manager->data_protect);
+
+				pthread_cond_broadcast(&manager->data_updated);
+
+		        values_pos = 0;
+				pthread_mutex_unlock(&manager->settings_protect);
+		        razorSleep(20);
+				pthread_mutex_lock(&manager->settings_protect);
+			}
+
+            gettimeofday(&t2, NULL);
+
+            if (elapsed_ms(t1, t2) > 200) {
+            	// 200ms elapsed since last request and no answer -> request synch again
+                // (this happens when DTR is connected and Razor resets on connect)
+                write(settings->tty_fd, "#f", 2);
+                values_pos = 0;
+                bufferInput = 0;
+                t1 = t2;
+			}
+
+            // check if time out is reached 
+            if (elapsed_ms(t0, t2) > connect_timeout_ms) {
+				// TIME OUT!
+                if (settings->messageOn) printf("INFO: request failed. (time out)\n\r");
+				manager->data->dataRequest = false;
+            }
+		}
+	}
+
+    pthread_mutex_unlock(&manager->settings_protect);
 
     return true;
 }
@@ -443,6 +439,7 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
 	pthread_mutex_init(&manager->settings_protect, NULL);
 	pthread_mutex_init(&manager->data_protect, NULL);
 	pthread_cond_init(&manager->data_updated, NULL);
+	pthread_cond_init(&manager->update, NULL);
 
     // saving port id and name in the settings
     manager->settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);
@@ -527,6 +524,19 @@ void razorAHRS_stop(razor_thread_manager *manager){
 
 /*----------------------------------------------------------------------------------------------------*/
 
+/*  requests a single data frame
+ */
+int razorAHRS_request(razor_thread_manager *manager){
+	if(manager->settings->streaming_Mode != single) return -1;
+	pthread_mutex_lock(&(manager->data_protect));	
+	manager->data->dataRequest = true;
+	pthread_mutex_unlock(&(manager->data_protect));
+	pthread_cond_broadcast(&(manager->update));
+	return 0;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
 void* razorPrinter(void* args){
 
     razor_thread_manager* manager = (razor_thread_manager*) args;
@@ -559,7 +569,7 @@ void razorPrinter_start(razor_thread_manager *manager, pthread_t *printer){
 
 /*----------------------------------------------------------------------------------------------------*/
 
-int razorPrinter_quit(razor_thread_manager *manager){
+int razorPrinter_stop(razor_thread_manager *manager){
     manager->printer_is_running = false;
     return 0;
 }

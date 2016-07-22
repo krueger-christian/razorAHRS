@@ -66,6 +66,7 @@
 		pthread_mutex_t settings_protect;
 		pthread_mutex_t data_protect;
 		pthread_cond_t data_updated;
+		pthread_cond_t update;
 		int thread_id;
 		pthread_t thread;
 		bool dataUpdated;
@@ -82,8 +83,12 @@
 		/*
 		 * Flag that is managed by valueCheck() function
 		 * true: the current values don't match the valid range
-		 * false: the current values are inside the valid range*/
+		 * false: the current values are inside the valid range */
 		bool data_fail;
+
+		/* 
+		 * Flag to signal if someone requests an update of the data */
+		bool dataRequest;
 
 		/* array that stores the sensor data
 		 *
@@ -105,14 +110,14 @@
 	/*  data type to store the calibration values
 	 *	                |        |        |          |          |          |
 	 *	TYPE OF CALIBR. |   0    |   1    |     2    |     3    |     4    |    5
-	 *	________________|________|________|__________|__________|__________|_________
-	 *	                |        |        |          |          |          |
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *   accelerometer  | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
-	 *	----------------|--------|--------|----------|----------|----------|---------
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	 magnetometer   | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
-	 *	----------------|--------|--------|----------|----------|----------|---------
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	 gyrometer      | x      | x_aver | y        | y_aver   | z        | z_aver
-	 *                  |        |        |          |          |          |
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 */
 	struct calibData{
 

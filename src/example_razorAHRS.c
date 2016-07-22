@@ -37,9 +37,9 @@ int main(int argc, char* argv[]) {
     printf("\n  !\n\r    CHOOSE RUNNING MODE\n\r");
     printf("       PRESS     C    FOR CONTINUOUS OUTPUT\n\r");
     printf("       PRESS     S    FOR SINGLE FRAME OUTPUT\n\r");
-    printf("       PRESS     Q    + ENTER TO QUIT\n\r");
+    printf("       PRESS     Q    QUIT\n\r");
 	printf("\n\r");
-    printf("       START/STOP WITH ENTER\n\n\n\r");
+    printf("       (CONFIRM WITH ENTER)\n\n\n\r");
 
     char console = 'D';
     int mode;
@@ -58,10 +58,8 @@ int main(int argc, char* argv[]) {
         }
         // mode: read one frame per request
         if ((console == 's') || (console == 'S')) {
-            //mode = 1;
-            //break;
-			printf("Sorry -- Currently not available.\n\r");
-			return 0;
+            mode = 1;
+            break;
         } 
         printf("\n  !\n\r    INVALID INPUT\n\n\r");
     }
@@ -79,15 +77,33 @@ int main(int argc, char* argv[]) {
 	pthread_t printer;
 	razorPrinter_start(manager, &printer);
 
-	char consol = 'D';
-	while(manager->razor_is_running){
-        if (read(STDIN_FILENO, &consol, 1) > 0) {
-          	if (consol == '\n') razorAHRS_stop(manager);
-        }
-		razorSleep(20);
+	console = 'D';
+
+	if(mode == 0){
+		while(manager->razor_is_running){
+		    if (read(STDIN_FILENO, &console, 1) > 0) {
+		      	if (console == '\n') razorAHRS_stop(manager);
+		    }
+			razorSleep(20);
+		}
+
+		pthread_join(manager->thread, NULL);
+
+	}
+	else if(mode == 1){
+		printf("\n\n\r");
+		printf("    PRESS      ENTER  FOR SINGLE FRAME OUTPUT\n\r");
+		printf("    PRESS  Q + ENTER  TO QUIT\n\n\r");
+
+		while(manager->razor_is_running){
+		    if (read(STDIN_FILENO, &console, 1) > 0) {
+		      	if ((console == 'q' ) || (console == 'Q') )razorAHRS_stop(manager);
+				if  (console == '\n') razorAHRS_request(manager);
+		    }
+			razorSleep(20);
+		}
 	}
 
-	pthread_join(manager->thread, NULL);
 
     printf("\n_________________________________________________\r\n");
     return 0;

@@ -82,6 +82,16 @@ void razorAHRS_stop(razor_thread_manager *manager);
 
 /*-----------------------------------------------------------------*/
 
+/*  requests a single data frame
+ *  returns  0 if successfull
+ *  returns -1 if failed
+ *  works only in single frame streaming mode (mode = 1)
+ *    --> initialize with razorAHRS(<baudrate>, <port name>, 1)
+ */
+int razorAHRS_request(razor_thread_manager *manager);
+
+/*-----------------------------------------------------------------*/
+
 /* -- Printer thread function, is called by razorPrinter_start
  * -- !!! Attention !!! not save for parallel use with other threads
  * -- mining the same data
@@ -100,6 +110,6 @@ void razorPrinter_start(razor_thread_manager *manager, pthread_t *printer);
 
 /* -- stops the output of the values on stdout
  */
-int razorPrinter_quit();
+int razorPrinter_stop();
 
 #endif
