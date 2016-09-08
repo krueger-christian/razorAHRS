@@ -25,7 +25,12 @@
 
 /*----------------------------------------------------------------------------------------------------*/
 
-	enum oFormat {text, binary};
+	/*  text: char array with undefined length, starts with "YPR" and terminates with "\n"
+	 *  binary: 12 Byte format, equals 3 float values
+	 *  32bit: 4 Byte format, equal to the long format but isn't readable as a long, containing 
+	 *         all three sensor angles as kind of a 10 Bit "integer"
+     */
+	enum oFormat {text, binary, fourbyte};
 	typedef enum oFormat outputFormat;
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -38,6 +43,7 @@
 	union rzrBffr{
 		float f;
 		char ch[4];
+		long l;
 	};
 	typedef union rzrBffr razorBuffer;
 

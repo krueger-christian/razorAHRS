@@ -54,7 +54,7 @@ void* readingRazor(razor_thread_manager *manager);
  *    to manage the thread and its data transfer. 
  *    For further information look at razorTools.h
  */
-razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode);
+razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode, int format);
 
 /*-----------------------------------------------------------------*/
 
