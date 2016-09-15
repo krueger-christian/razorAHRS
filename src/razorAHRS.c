@@ -51,6 +51,12 @@
 #include "razorAHRS.h"
 #include "config.h" // includes user settings
 
+#define debug 0
+
+const char *token_reference = "#SYNCH00\r\n"; 
+const int token_length = 10;
+
+
 /*----------------------------------------------------------------------------------------------------*/
 
 /* INITIALIZING THE TRACKER
@@ -67,15 +73,15 @@ bool initRazor(struct adjustment *settings) {
 
     /* We know the length of the expected token from the arduino code (1)
      * Token is: "#SYNCH00\r\n*/
-    int token_length = 10;
+    //int token_length = 10;
 
     // Get some space to store the token we receive after requesting
     char* token;
     token = calloc(token_length, sizeof (char));
 
     // We compare the received token with our following reference
-    char token_reference[10];
-    strncpy(token_reference, "#SYNCH00\r\n", 10); 
+    //char token_reference[10];
+    //strncpy(token_reference, "#SYNCH00\r\n", 10); 
 
     /* variables to store time values
      * used to measure how long 
@@ -201,15 +207,15 @@ bool synch( razor_thread_manager *manager){
 
     /* We know the length of the expected token from the arduino code (1)
      * Token is: "#SYNCH00\r\n*/
-    int token_length = 10;
+    //int token_length = 10;
 
     // Get some space to store the token we receive after requesting
     char* token;
     token = calloc(token_length, sizeof (char));
 
     // We compare the received token with our following reference
-    char token_reference[10];
-    strncpy(token_reference, "#SYNCH00\r\n", 10); 
+    //char token_reference[10];
+    //strncpy(token_reference, "#SYNCH00\r\n", 10); 
 
     tcflush(manager->settings->tty_fd, TCIFLUSH);
 
@@ -301,17 +307,6 @@ bool resynch(razor_thread_manager *manager) {
         return false;
     }
 
-	/*
-    if (manager->settings->streaming_Mode == single) {
-
-		// disable output continuous stream
-        write(manager->settings->tty_fd, "#o0", 3);
-
-		pthread_mutex_unlock(&manager->data_protect);
-		pthread_mutex_unlock(&manager->settings_protect);
-        razorSleep(20);
-	}
-	*/
 	pthread_mutex_unlock(&manager->data_protect);
 	pthread_mutex_unlock(&manager->settings_protect);
 	return true;
@@ -434,6 +429,8 @@ bool readSingle(razor_thread_manager *manager) {
 
     tcflush(manager->settings->tty_fd, TCIFLUSH);
 
+	if(synch(manager) == false) return false;
+
     char singleByte = 'D';
     int result;
     int bufferInput = 0;
@@ -450,7 +447,7 @@ bool readSingle(razor_thread_manager *manager) {
 			pthread_cond_wait(&manager->update, &manager->settings_protect);
 		}
 		
-	    tcflush(manager->settings->tty_fd, TCIFLUSH);
+	    //tcflush(manager->settings->tty_fd, TCIFLUSH);
 
 		if(write(settings->tty_fd, "#f", 2) != 2) printf("INFO: unable to send request\n\r"); // send request
 	    gettimeofday(&t0, NULL);
@@ -471,16 +468,23 @@ bool readSingle(razor_thread_manager *manager) {
 
 						if(dewrappingValues( data->floatBuffer.l, data) == -1) 
 						{
+							#if debug
+								printf("GET: %ld\r\n", data->floatBuffer.l);
+								bitprinter(data->floatBuffer.l, 32);
+							#endif 							
+
 							printf("INFO: reading error\n\r");
 
-							pthread_mutex_unlock(&manager->data_protect);
-							pthread_mutex_unlock(&manager->settings_protect);
-							if(resynch(manager) == false) return false;
-							pthread_mutex_lock(&manager->data_protect);
-							pthread_mutex_lock(&manager->settings_protect);
-
+							if(synch(manager) == false) return false;
+							
 						}
-						else values_pos = 3;
+						else {
+							values_pos = 3;
+							#if debug						
+								printf("GET: %ld\r\n", data->floatBuffer.l);								
+								bitprinter(data->floatBuffer.l, 32);
+							#endif
+						}
 					}
 					else{
                 		data->values[values_pos] = data->floatBuffer.f;
@@ -490,6 +494,7 @@ bool readSingle(razor_thread_manager *manager) {
 		        }
 				pthread_mutex_unlock(&manager->data_protect);
             }
+			else if(result > 1) printf("INFO reading error (more bytes then requested)\r\n"); 
 
             // if new data is available on the serial port, print it out
             if (values_pos == 3) {
@@ -678,7 +683,6 @@ int razorAHRS_request(razor_thread_manager *manager){
 	if(manager->settings->streaming_Mode != single) return -1;
 	pthread_mutex_lock(&(manager->data_protect));	
 	manager->data->dataRequest = true;
-	printf("start request\r\n");
 	pthread_mutex_unlock(&(manager->data_protect));
 	pthread_cond_broadcast(&(manager->update));
 	return 0;

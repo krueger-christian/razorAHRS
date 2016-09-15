@@ -46,9 +46,9 @@ long wrappingValues(int value_1, int value_2, int value_3){
 	if (value_3&1) checksum++;
 
 	long bitarray = 0;
-	bitarray = addingBits(value_1, bitarray, 22);
-	bitarray = addingBits(value_2, bitarray, 12);
-	bitarray = addingBits(value_3, bitarray, 2);
+	bitarray = addingBits(value_1 + 180, bitarray, 22);
+	bitarray = addingBits(value_2 + 180, bitarray, 12);
+	bitarray = addingBits(value_3 + 180, bitarray, 2);
 	bitarray = addingBits(checksum, bitarray, 0);
 
 	return bitarray;
@@ -69,6 +69,9 @@ int dewrappingValues(long input, struct razorData *data){
 	
 	if(checksum != readingBits(input, 0, 1)) return -1;
 
+	values[0] -= 180;
+	values[1] -= 180;
+	values[2] -= 180;
 	data->values[0] = (float) values[0];
 	data->values[1] = (float) values[1];
 	data->values[2] = (float) values[2];
