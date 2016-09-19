@@ -1,15 +1,14 @@
 #ifndef RAZORAHRS_H
 #define RAZORAHRS_H
 
-/* INITIALIZING THE TRACKER
+/* SYNCHRONIZING THE TRACKER
  *
  * -- checks, if tracker is available
- * -- activates continuous binary streaming mode
  * -- ensures that receiving and sending is synchronous
  * -- returns true, if tracker is synchronized
  * -- returns false, if connection or synchronization failed 
  */
-bool initRazor(struct adjustment *settings);
+bool synch(razor_thread_manager *manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -33,17 +32,12 @@ bool readContinuously(razor_thread_manager *manager);
  * -- not ready for thread use!!!
  * -- read values are stored at manager->data->values,
  *    data structure is protected with mutex manager->data_protect
- * -- TODO:
- *    -- mutex protection and conditional waiting
- *    -- request signal
  */
 bool readSingle(razor_thread_manager *manager);
 
 /*-----------------------------------------------------------------*/
 
 /* -- manages wether streaming continuous or on request
- * -- TODO:
- *    -- could be included to razorAHRS_start()
  */
 void* readingRazor(razor_thread_manager *manager);
 

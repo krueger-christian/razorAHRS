@@ -36,10 +36,10 @@
 /*----------------------------------------------------------------------------------------------------*/
 
 	/* The struggle is, to transform the binary data of the serial stream
-	 * into useful float values. It's just a matter of interpretting ones
+	 * into useful values. It's just a matter of interpretting ones
 	 * and zeros. So we can use the same memory location and don't care if
-	 * we put four characters inside or one float value, both cases require
-	 * four bytes. We do this using a union structure... */ 
+	 * we put four characters inside, one float value or the razor specific 32 bit 
+	 * data format. All cases require four bytes. We do this using a union structure... */ 
 	union rzrBffr{
 		float f;
 		char ch[4];
@@ -105,10 +105,10 @@
 
 		/* union structure to store blocks of 
 		 *  4 Byte received by the tracker (equal 
-		 *  to the size of a single float value.
+		 *  to the size of a single float or long value.
 		 *  for further information look at 
 		 *  razorTools.h */
-		razorBuffer floatBuffer;
+		razorBuffer buffer;
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -165,7 +165,7 @@
 		 *  to the size of a single float value.
 		 *  for further information look at 
 		 *  razorTools.h */
-		razorBuffer floatBuffer;
+		razorBuffer buffer;
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
