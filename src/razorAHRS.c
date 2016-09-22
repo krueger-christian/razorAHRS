@@ -410,6 +410,100 @@ bool readSingle(razor_thread_manager *manager) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
+void* calibratingRazor(razor_thread_manager *manager) {
+
+	bool calibrating = true;
+	bool sending_request = true;
+
+	/* 0: Accelerometer
+	 * 1: Magnetometer
+	 * 2: Gyrometer	*/
+	int sensor = 0;
+
+	/* 0: x-axis maximum
+	 * 1: x-axis minimum
+	 * 2: y-axis maximum
+	 * 3: y-axis minimum
+	 * 4: z-axis maximum
+	 * 5: z-axis minimum */
+	int step = 0;
+
+	/*	xmax  xmin  ymax  ymin  zmax  zmin  ¦  acc
+	 *	xmax  xmin  ymax  ymin  zmax  zmin  ¦  mag
+	 *	xave  xave  yave  yave  zave  zave  ¦  gyr
+	 */
+	float calibMat[3][6] = {{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0}}
+
+	pthread_mutex_lock(&manager->settings_protect);
+
+	// enable continuous streaming
+	write(settings->tty_fd, "#o1", 3);
+    razorSleep(20);
+
+	// enable binary streaming
+	write(settings->tty_fd, "#ob", 3);
+    razorSleep(20);
+
+    tcflush(manager->settings->tty_fd, TCIFLUSH);
+
+	if(synch(manager) == false){
+		pthread_mutex_unlock(&manager->settings_protect);		
+		return false;
+	}
+
+	
+	while(calibrating)
+	{
+
+		if(sending_request)
+		{
+			sending_request = false;
+			send_request(sensor, step);
+		}
+        result = read(settings->tty_fd, &singleByte, 1);
+ 
+        if (result == 1) 
+		{
+			// ensure that currently only this function changes razor data
+			pthread_mutex_lock(&manager->data_protect);
+            manager->data->buffer.ch[bufferInput] = singleByte;
+            bufferInput++;
+
+            if (bufferInput == 4)
+			{
+				calibMat[sensor][step] = manager->data->buffer.f;
+		        bufferInput = 0;
+
+				// signal that the data was updated
+				manager->dataUpdated = true;
+				pthread_mutex_unlock(&manager->data_protect);
+				pthread_cond_broadcast(&manager->data_updated);
+			}
+        }
+		else if(result > 1)
+		{
+			pthread_mutex_unlock(&manager->settings_protect);		
+			calibrating = false; // TODO: maybe return false ?
+		}
+
+		if(manager->data_request)
+		{
+			step++;
+			if(step > 5)
+			{
+				step = 0;
+				sensor++;
+			}
+			sending_request = true;
+		}
+    }
+
+    razorAHRS_quit(manager);
+    pthread_exit(NULL);
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
 void* readingRazor(razor_thread_manager *manager) {
 
 	struct adjustment *settings = manager->settings;
@@ -468,6 +562,35 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode, int form
 	manager->dataUpdated = false;
 
 	return manager;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
+int razorAHRS_calibration(razor_thread_manager *manager){
+
+	pthread_mutex_lock(&manager->settings_protect);
+
+    //saving current termios configurations of tty_fd
+    if (tcgetattr(manger->settings->tty_fd, &manager->settings->old_tio) != 0) {
+        manager->settings->tio_config_changed = false;
+
+        /*reactivating the previous configurations of STDOUT_FILENO 
+        because of breaking the process */
+        resetConfig(manager->settings);
+
+        return -1;
+    }
+
+    tio_Config(manager->settings->tty_fd, manager->settings->baudRate);
+    manager->settings->tio_config_changed = true;
+
+	pthread_mutex_unlock(&manager->settings_protect);
+
+	manager->razor_is_running = true;
+
+    manager->thread_id = pthread_create(&manager->thread, NULL, (void*) &calibratingRazor, manager);
+
+    return 0;	
 }
 
 /*----------------------------------------------------------------------------------------------------*/
