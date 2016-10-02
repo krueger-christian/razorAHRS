@@ -8,7 +8,9 @@ Contains a parser and a virtual headtracker.
 Build
 ---
 
-	$ cmake . && make
+```bash
+$ cmake . && make
+```
 
 
 Virtual Tracker
