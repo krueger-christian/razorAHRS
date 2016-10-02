@@ -8,7 +8,7 @@
  * -- returns true, if tracker is synchronized
  * -- returns false, if connection or synchronization failed 
  */
-bool synch(razor_thread_manager *manager);
+bool synch (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -17,14 +17,14 @@ bool synch(razor_thread_manager *manager);
  * -- returns true, if values are valid or resynchronization 
  *    was successfull 
  */
-bool valueCheck(razor_thread_manager *manager);
+bool valueCheck (razor_thread_manager * manager);
 /*-----------------------------------------------------------------*/
 
 /* -- mode for continuous streaming
  * -- read values are stored at manager->data->values,
  *    data structure is protected with mutex manager->data_protect
  */
-bool readContinuously(razor_thread_manager *manager);
+bool readContinuously (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -33,13 +33,13 @@ bool readContinuously(razor_thread_manager *manager);
  * -- read values are stored at manager->data->values,
  *    data structure is protected with mutex manager->data_protect
  */
-bool readSingle(razor_thread_manager *manager);
+bool readSingle (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
 /* -- manages wether streaming continuous or on request
  */
-void* readingRazor(razor_thread_manager *manager);
+void *readingRazor (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -48,14 +48,14 @@ void* readingRazor(razor_thread_manager *manager);
  *    to manage the thread and its data transfer. 
  *    For further information look at razorTools.h
  */
-razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode, int format);
+razor_thread_manager *razorAHRS (speed_t baudRate, char *port, int mode, int format);
 
 /*-----------------------------------------------------------------*/
 
 /* -- simply starts the razor thread
  * -- return 0 if successfull, else -1
  */
-int razorAHRS_start(razor_thread_manager *manager);
+int razorAHRS_start (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -66,13 +66,13 @@ int razorAHRS_start(razor_thread_manager *manager);
  * -- frees allocated space
  * -- returns 0 if succesfull
  */
-int razorAHRS_quit(razor_thread_manager *manager);
+int razorAHRS_quit (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
 /*  stops the razor thread
  */
-void razorAHRS_stop(razor_thread_manager *manager);
+void razorAHRS_stop (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -82,7 +82,7 @@ void razorAHRS_stop(razor_thread_manager *manager);
  *  works only in single frame streaming mode (mode = 1)
  *    --> initialize with razorAHRS(<baudrate>, <port name>, 1)
  */
-int razorAHRS_request(razor_thread_manager *manager);
+int razorAHRS_request (razor_thread_manager * manager);
 
 /*-----------------------------------------------------------------*/
 
@@ -90,7 +90,7 @@ int razorAHRS_request(razor_thread_manager *manager);
  * -- !!! Attention !!! not save for parallel use with other threads
  * -- mining the same data
  */
-void* razorPrinter(void* args);
+void *razorPrinter (void *args);
 
 /*-----------------------------------------------------------------*/
 
@@ -98,12 +98,12 @@ void* razorPrinter(void* args);
  * -- !!! Attention !!! not save for parallel use with other threads
  * -- mining the same data
  */
-void razorPrinter_start(razor_thread_manager *manager, pthread_t *printer);
+void razorPrinter_start (razor_thread_manager * manager, pthread_t * printer);
 
 /*-----------------------------------------------------------------*/
 
 /* -- stops the output of the values on stdout
  */
-int razorPrinter_stop();
+int razorPrinter_stop ();
 
 #endif
