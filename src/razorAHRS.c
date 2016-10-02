@@ -46,104 +46,48 @@
  */
 #include "razorTools.h"
 
+#include "razorBitIO.c"
+
 #include "razorAHRS.h"
 #include "config.h" // includes user settings
 
+#define debug 0
+
+const char *token_reference = "#SYNCH00\r\n"; 
+const int token_length = 10;
+
+
 /*----------------------------------------------------------------------------------------------------*/
 
-/* INITIALIZING THE TRACKER
- *
- * The function...
- * ... checks, if tracker is available
- * ... activates continuous binary streaming mode
- * ... ensures that receiving and sending is synchronous
- * ... returns true, if tracker is synchronized
- * ... returns false, if connection or synchronization failed */
-bool initRazor(struct adjustment *settings) {
+// function to synchronize incoming bytes with the tracker
+bool synch( razor_thread_manager *manager){
+
+    if (manager->settings->messageOn) printf("  !\n    SYNCHRONIZING: ");
 
     char input = 'D'; // Buffer to store one byte
-
-    /* We know the length of the expected token from the arduino code (1)
-     * Token is: "#SYNCH00\r\n*/
-    int token_length = 10;
 
     // Get some space to store the token we receive after requesting
     char* token;
     token = calloc(token_length, sizeof (char));
 
-    // We compare the received token with our following reference
-    char token_reference[10];
-    strncpy(token_reference, "#SYNCH00\r\n", 10); 
+    tcflush(manager->settings->tty_fd, TCIFLUSH);
 
-    /* variables to store time values
-     * used to measure how long 
-     * connecting takes */
+    for(int i = 0; (i <= 10) && (write(manager->settings->tty_fd, "#s00", 4) != 4); i++){
+        razorSleep(20);
+    }
+
     struct timeval t0, t1, t2;
     gettimeofday(&t0, NULL);
     t1 = t0;
 
-    // Trying to connect and switch to binary mode during loop
-    bool in_connect  = false;
-    bool out_connect_1 = false;
-    bool out_connect_2 = false;
-    if (settings->messageOn) printf("\n  – LOOKING FOR TRACKER: ");
-    while ( !(in_connect && out_connect_1 && out_connect_2) ) {
-
-        if (read(settings->tty_fd, &input, 1) > 0) in_connect = true;
-
-        // output continuous stream
-        if(write(settings->tty_fd, "#o1", 3) == 3) out_connect_1 = true;
-
-        // output binary
-        if(write(settings->tty_fd, "#ob", 3) == 3) out_connect_2 = true;
-        
-        // check if timeout is reached
-        gettimeofday(&t2, NULL);
-        if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-            if (settings->messageOn) printf("___failed. (time out)\n\r"); // TIME OUT!		
-            free(token);
-            return false;
-        }
-    }
-
-    if (settings->messageOn) {
-        printf("__okay.\n\r");
-        printf("\n  – SWITCHED TO BINARY OUTPUT MODE.\n\r");
-    }
-
-    /* kind of flushing the input.
-     * the tracker started in textmode and sends strings/frames of the format:
-     * "YPR=<yaw-value>,<pitch-value2>,<roll-value3>\r\n",
-     * after receiving '\n' we are sure that with the next byte we will 
-     * receive the start of a new frame */
-    //while (input != '\n') {
-    //    read(settings->tty_fd, &input, 1);
-    //}
-    tcflush(settings->tty_fd, TCIFLUSH);
-
-    // send request for synchronization token
-    if (settings->messageOn) printf("\n  – SYNCHRONIZING: ");
-
-    for(int i = 0; (i <= 10) && (write(settings->tty_fd, "#s00", 4) != 4); i++){
-        razorSleep(20);
-    }
-
-    /* wait a little bit to get sure that the
-     * tracker read the send signals */
-    razorSleep(20);
-
     // make sure, control variable is set to 0
     size_t token_pos = 0;
 
-    // updating time reference
-    gettimeofday(&t0, NULL);
-    t1 = t0;
-
-    /* SYNCHRONIZATION
-     * Looking for correct token. */
+	/* SYNCHRONIZATION
+    * Looking for correct token. */
     while (1) {
         // check if input available...
-        if (read(settings->tty_fd, &input, 1) > 0) {
+        if (read(manager->settings->tty_fd, &input, 1) > 0) {
             /* ...is the first byte equal to the first
              * character of the reference token */
             if (input == '#') {
@@ -153,7 +97,7 @@ bool initRazor(struct adjustment *settings) {
 
                 // ... first byte matchs, so get the next bytes
                 while (token_pos < token_length) {
-                    if (read(settings->tty_fd, &input, 1) > 0) {
+                    if (read(manager->settings->tty_fd, &input, 1) > 0) {
                         token[token_pos] = input;
                         token_pos++;
                     }
@@ -161,10 +105,10 @@ bool initRazor(struct adjustment *settings) {
 
                 /* if received token is equal to the reference token
                  * the variable synchronized is set to true */
-                settings->synchronized = (strncmp(token, token_reference,10) == 0) ? true : false;
+                manager->settings->synchronized = (strncmp(token, token_reference,10) == 0) ? true : false;
 
-                if (settings->synchronized == true) {
-                    if (settings->messageOn) printf("__okay.\n\r");
+                if (manager->settings->synchronized == true) {
+                    if (manager->settings->messageOn) printf("__okay.\n\n\r");
                     free(token);
                     return true;
                 }
@@ -175,20 +119,24 @@ bool initRazor(struct adjustment *settings) {
         if (elapsed_ms(t1, t2) > 200) {
             // 200ms elapsed since last request and no answer -> request synch again
             // (this happens when DTR is connected and Razor resets on connect)
-            for(int i = 0; (i <= 10) && (write(settings->tty_fd, "#s00", 4) != 4); i++){
+
+			tcflush(manager->settings->tty_fd, TCIFLUSH);
+
+            for(int i = 0; (i <= 10) && (write(manager->settings->tty_fd, "#s00", 4) != 4); i++){
                 razorSleep(20);
             }
 
             t1 = t2;
         }
         if (elapsed_ms(t0, t2) > connect_timeout_ms) { //timeout?
-            settings->synchronized = false;
-            if (settings->messageOn) printf("___failed. (time out)\n\r"); // TIME OUT!		
+            manager->settings->synchronized = false;
+            if (manager->settings->messageOn) printf("___failed. (time out)\n\n\r"); // TIME OUT!		
             free(token);
             return false;
         }
         token_pos = 0;
     }
+
 }
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -198,40 +146,22 @@ bool valueCheck(razor_thread_manager *manager) {
 	pthread_mutex_lock(&manager->data_protect);
 	pthread_mutex_lock(&manager->settings_protect);
 
-    if ((manager->data->values[0] > 360) || \
-		(manager->data->values[1] > 360) || \
-		(manager->data->values[0] > 360)) {
+	int yaw   = manager->data->values[0];
+	int pitch = manager->data->values[1];
+	int roll  = manager->data->values[2];
 
-        manager->settings->messageOn = false;
-        manager->settings->synchronized = false;
-        initRazor(manager->settings);
-        manager->settings->messageOn = true;
-        manager->data->data_fail = true;
+	if(yaw < 0)   yaw   *= -1;
+	if(pitch < 0) pitch *= -1;
+	if(roll < 0)  roll  *= -1;
 
-        if (manager->settings->synchronized == false) {
-            if(manager->settings->messageOn)
-				printf("\n  !\n\r    INFO: Reading failed. (Synchronization Problems)\n\n\n\r");
-			pthread_mutex_unlock(&manager->data_protect);
-			pthread_mutex_unlock(&manager->settings_protect);
-            return false;
-        } 
-        if (manager->settings->streaming_Mode == single) {
-
-			// disable output continuous stream
-            write(manager->settings->tty_fd, "#o0", 3);
-
-			pthread_mutex_unlock(&manager->data_protect);
-			pthread_mutex_unlock(&manager->settings_protect);
-            razorSleep(20);
-			pthread_mutex_lock(&manager->data_protect);
-			pthread_mutex_lock(&manager->settings_protect);
-        }
+    if ((yaw > 360) || (pitch > 360) || (roll > 360)) {
+		if(synch(manager) == false) manager->data->data_fail = true;
     } else manager->data->data_fail = false;
 
 	pthread_mutex_unlock(&manager->data_protect);
 	pthread_mutex_unlock(&manager->settings_protect);
 
-    return true;
+    return !(manager->data->data_fail);
 }
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -241,33 +171,64 @@ bool readContinuously(razor_thread_manager *manager) {
 	struct adjustment *settings = manager->settings;
 	struct razorData *data      = manager->data;
 
-	// ensure that currently only this function changes razor settings
-	pthread_mutex_lock(&manager->settings_protect);
-
-    write(settings->tty_fd, "#ob", 3); // just to ensure binary output
-
     char singleByte = 'D';
-    int result;
+    int result = 0;
     int bufferInput = 0;
     size_t values_pos = 0;
 
+	// ensure that currently only this function changes razor settings
+	pthread_mutex_lock(&manager->settings_protect);
+
+	// enable output continuous stream
+    write(settings->tty_fd, "#o1", 3);
+    razorSleep(20);
+
+	// define output mode
+    if(settings->output_Format == fourbyte) write(settings->tty_fd, "#ol", 3);
+	else write(settings->tty_fd, "#ob", 3);
+	razorSleep(20);
+
+    tcflush(manager->settings->tty_fd, TCIFLUSH);
+
+	if(synch(manager) == false){
+		pthread_mutex_unlock(&manager->settings_protect);		
+		return false;
+	}
+
 	while(manager->razor_is_running){
         result = read(settings->tty_fd, &singleByte, 1);
-        //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
 
+		#if debug        
+			printf("Inside buffer: %d \t read bytes: %d\n\r", bufferInput, result);
+		#endif
+ 
         if (result == 1) {
 			// ensure that currently only this function changes razor data
 			pthread_mutex_lock(&manager->data_protect);
-            data->floatBuffer.ch[bufferInput] = singleByte;
+            data->buffer.ch[bufferInput] = singleByte;
             bufferInput++;
 
             if (bufferInput == 4) {
-                data->values[values_pos] = data->floatBuffer.f;
-                values_pos++;
-                bufferInput = 0;
-            }
+				if(settings->output_Format == fourbyte){
+					if(dewrappingValues( data->buffer.l, data) == -1) {
+						if(synch(manager) == false){
+							pthread_mutex_unlock(&manager->data_protect);
+							pthread_mutex_unlock(&manager->settings_protect);
+							return false;
+						}
+					}
+					else values_pos = 3;
+				}
+				else{
+		            data->values[values_pos] = data->buffer.f;
+		            values_pos++;
+				}
+		        bufferInput = 0;
+			}
 			pthread_mutex_unlock(&manager->data_protect);
         }
+		else if((result > 1) && manager->settings->messageOn ) \
+			printf("INFO reading error (more bytes then requested)\r\n"); 
 
         // if 3 byte are read put them into the data structure
         if (values_pos == 3) {
@@ -275,10 +236,7 @@ bool readContinuously(razor_thread_manager *manager) {
 			/* before storing the input, check if it fits 
 			 * in the valid range */
             pthread_mutex_unlock(&manager->settings_protect);
-            if (valueCheck(manager) == false){
-			    pthread_mutex_unlock(&manager->settings_protect);
-				return false;
-			}
+            if (valueCheck(manager) == false) return false;
             pthread_mutex_lock(&manager->settings_protect);
 
 			pthread_mutex_lock(&manager->data_protect);
@@ -301,105 +259,247 @@ bool readContinuously(razor_thread_manager *manager) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
-//TODO function isnt thread save yet
 bool readSingle(razor_thread_manager *manager) {
 
 	struct adjustment *settings = manager->settings;
 	struct razorData *data      = manager->data;
-    // Buffer to store user input from console
-    unsigned char console = 'D';
+
     char singleByte = 'D';
-
+    int result = 0;
+    int bufferInput = 0;
     size_t values_pos = 0;
-    write(settings->tty_fd, "#o0", 3); // disable output continuous stream
+
+	// ensure that currently only this function changes razor settings
+	pthread_mutex_lock(&manager->settings_protect);
+
+	// disable output continuous stream
+    write(settings->tty_fd, "#o0", 3);
     razorSleep(20);
-    write(settings->tty_fd, "#ob", 3); // just to ensure binary output
+	
+	// define output mode
+    if(settings->output_Format == fourbyte) write(settings->tty_fd, "#ol", 3);
+	else write(settings->tty_fd, "#ob", 3);
     razorSleep(20);
 
-    if (razorFlush(settings, flush_timeout_ms, 1) == false) return false;
+    tcflush(manager->settings->tty_fd, TCIFLUSH);
+
+	if(synch(manager) == false){
+		pthread_mutex_unlock(&manager->settings_protect);		
+		return false;
+	}
 
     /* variables to store time values
      * used to measure how long 
      * requesting takes */
     struct timeval t0, t1, t2;
-    gettimeofday(&t0, NULL);
-    t1 = t0;
 
-	bool stopRead = false;
+	while(manager->razor_is_running){
 
-    if (settings->messageOn) {
-        printf("_________________________________________________\r\n");
-        printf("\n  !\n\r    PRESS SPACEBAR TO REQUEST DATA FRAME\n\r");
-        printf("    PRESS     Q    TO QUIT\n\n\n\r");
-    }
+		while( !(manager->data->dataRequest) ){
+			pthread_cond_wait(&manager->update, &manager->settings_protect);
+		}
 
-    int result;
-    int bufferInput = 0;
-    while (!stopRead) {
-        // if new data is available on the console...
-        if (read(STDIN_FILENO, &console, 1) > 0) {
-            // pressed q or Q --> quit
-            if ((console == 'q') || (console == 'Q')) stopRead = true;
-                // pressed spacebar --> read one frame
-            else if (console == ' ') {
-                write(settings->tty_fd, "#f", 2); // send request
-                gettimeofday(&t0, NULL);
-                t1 = t0;
-                while (1) {
-                    result = read(settings->tty_fd, &singleByte, 1);
-                    //printf("buffer= %d \t result = %d\n\r", bufferInput, result); // debugging option
+		// try to send request
+		if(write(settings->tty_fd, "#f", 2) != 2){
+			// ... in case of failed sending
+			printf("INFO: unable to send request\n\r");
+			pthread_mutex_lock(&manager->data_protect);
+			manager->data->dataRequest = false;
+			pthread_mutex_unlock(&manager->data_protect);
+		}
 
-                    if (result == 1) {
-                        data->floatBuffer.ch[bufferInput] = singleByte;
-                        bufferInput++;
+	    gettimeofday(&t0, NULL);
+	    t1 = t0;
 
-                        if (bufferInput == 4) {
-                            data->values[values_pos] = data->floatBuffer.f;
-                            values_pos++;
-                            bufferInput = 0;
-                        }
-                    }
+        while (manager->data->dataRequest) {
+        	result = read(settings->tty_fd, &singleByte, 1);
 
-                    // if new data is available on the serial port, print it out
-                    if (values_pos == 3) {
-                        if (valueCheck(manager) == false) return false;
-                        if (data->data_fail == false) {
-                            printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n",\
-							data->values[0], data->values[1], data->values[2]);
-                        }
-                        values_pos = 0;
+			#if debug
+            	printf("Inside buffer: %d \t read bytes: %d\n\r", bufferInput, result);
+			#endif
 
-                        // TODO
-                        razorSleep(20);
-                        break;
-                    }
+            if (result == 1) {
+				// ensure that currently only this function changes razor data
+				pthread_mutex_lock(&manager->data_protect);
+		        data->buffer.ch[bufferInput] = singleByte;
+		        bufferInput++;
 
-                    gettimeofday(&t2, NULL);
+		        if (bufferInput == 4) {
+		        	if(settings->output_Format == fourbyte){
 
-                    if (elapsed_ms(t1, t2) > 200) {
-                        // 200ms elapsed since last request and no answer -> request synch again
-                        // (this happens when DTR is connected and Razor resets on connect)
-                        write(settings->tty_fd, "#f", 2);
-                        values_pos = 0;
-                        bufferInput = 0;
-                        t1 = t2;
-                    }
+						if(dewrappingValues( data->buffer.l, data) == -1) 
+						{
+							#if debug
+								printf("GET: %ld\r\n", data->buffer.l);
+								bitprinter(data->buffer.l, 32);
+							#endif 							
 
-                    // check if time out is reached
-                    if (elapsed_ms(t0, t2) > connect_timeout_ms) {
-						// TIME OUT!
-                        if (settings->messageOn) printf("INFO: request failed. (time out)\n\r");
-                        break;
-                    }
-                }
+							if(manager->settings->messageOn) printf("INFO: reading error\n\r");
+
+							if(synch(manager) == false){
+								pthread_mutex_unlock(&manager->settings_protect);
+								pthread_mutex_unlock(&manager->data_protect);	
+								return false;
+							}
+						}
+						else {
+							values_pos = 3;
+							#if debug						
+								printf("GET: %ld\r\n", data->buffer.l);								
+								bitprinter(data->buffer.l, 32);
+							#endif
+						}
+					}
+					else{
+                		data->values[values_pos] = data->buffer.f;
+                		values_pos++;
+					}
+                	bufferInput = 0;
+		        }
+				pthread_mutex_unlock(&manager->data_protect);
             }
-        }
-    }
+			else if((result > 1) && manager->settings->messageOn)\
+				printf("INFO reading error (more bytes then requested)\r\n"); 
 
-    // reactivate text mode
-    write(settings->tty_fd, "#ot", 3);
+            // if new data is available on the serial port, print it out
+            if (values_pos == 3) {
+				/* before storing the input, check if it fits 
+				 * in the valid range */
+		        pthread_mutex_unlock(&manager->settings_protect);
+		        if (valueCheck(manager) == false) return false;
+		        pthread_mutex_lock(&manager->settings_protect);
+
+				// signal that the data was updated
+				pthread_mutex_lock(&manager->data_protect);
+				manager->dataUpdated = true;
+				manager->data->dataRequest = false;
+				pthread_mutex_unlock(&manager->data_protect);
+
+				pthread_cond_broadcast(&manager->data_updated);
+
+		        values_pos = 0;
+				pthread_mutex_unlock(&manager->settings_protect);
+		        razorSleep(20);
+				pthread_mutex_lock(&manager->settings_protect);
+			}
+
+            gettimeofday(&t2, NULL);
+
+            if (elapsed_ms(t1, t2) > 200) {
+            	// 200ms elapsed since last request and no answer -> request synch again
+                // (this happens when DTR is connected and Razor resets on connect)
+                write(settings->tty_fd, "#f", 2);
+                values_pos = 0;
+                bufferInput = 0;
+                t1 = t2;
+			}
+
+            // check if time out is reached 
+            if (elapsed_ms(t0, t2) > connect_timeout_ms) {
+				// TIME OUT!
+                if (settings->messageOn) printf("INFO: request failed. (time out)\n\r");
+				manager->data->dataRequest = false;
+            }
+		}
+	}
+
+    pthread_mutex_unlock(&manager->settings_protect);
 
     return true;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
+void* calibratingRazor(razor_thread_manager *manager) {
+
+	bool calibrating = true;
+	bool sending_request = true;
+
+	/* 0: Accelerometer
+	 * 1: Magnetometer
+	 * 2: Gyrometer	*/
+	int sensor = 0;
+
+	/* 0: x-axis maximum
+	 * 1: x-axis minimum
+	 * 2: y-axis maximum
+	 * 3: y-axis minimum
+	 * 4: z-axis maximum
+	 * 5: z-axis minimum */
+	int step = 0;
+
+	/*	xmax  xmin  ymax  ymin  zmax  zmin  ¦  acc
+	 *	xmax  xmin  ymax  ymin  zmax  zmin  ¦  mag
+	 *	xave  xave  yave  yave  zave  zave  ¦  gyr
+	 */
+	float calibMat[3][6] = {{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0}}
+
+	pthread_mutex_lock(&manager->settings_protect);
+
+	// enable continuous streaming
+	write(settings->tty_fd, "#o1", 3);
+    razorSleep(20);
+
+	// enable binary streaming
+	write(settings->tty_fd, "#ob", 3);
+    razorSleep(20);
+
+    tcflush(manager->settings->tty_fd, TCIFLUSH);
+
+	if(synch(manager) == false){
+		pthread_mutex_unlock(&manager->settings_protect);		
+		return false;
+	}
+
+	
+	while(calibrating)
+	{
+
+		if(sending_request)
+		{
+			sending_request = false;
+			send_request(sensor, step);
+		}
+        result = read(settings->tty_fd, &singleByte, 1);
+ 
+        if (result == 1) 
+		{
+			// ensure that currently only this function changes razor data
+			pthread_mutex_lock(&manager->data_protect);
+            manager->data->buffer.ch[bufferInput] = singleByte;
+            bufferInput++;
+
+            if (bufferInput == 4)
+			{
+				calibMat[sensor][step] = manager->data->buffer.f;
+		        bufferInput = 0;
+
+				// signal that the data was updated
+				manager->dataUpdated = true;
+				pthread_mutex_unlock(&manager->data_protect);
+				pthread_cond_broadcast(&manager->data_updated);
+			}
+        }
+		else if(result > 1)
+		{
+			pthread_mutex_unlock(&manager->settings_protect);		
+			calibrating = false; // TODO: maybe return false ?
+		}
+
+		if(manager->data_request)
+		{
+			step++;
+			if(step > 5)
+			{
+				step = 0;
+				sensor++;
+			}
+			sending_request = true;
+		}
+    }
+
+    razorAHRS_quit(manager);
+    pthread_exit(NULL);
 }
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -429,7 +529,14 @@ void* readingRazor(razor_thread_manager *manager) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
-razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
+
+/* mode: 0 -> single (frame on request)
+ *       1 -> continuous
+ *
+ * format: 0 -> integer (4 Byte per frame) 
+ *         1 -> floating point (12 Byte per frame)
+ */
+razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode, int format) {
 	razor_thread_manager *manager;
 	manager = (razor_thread_manager*) calloc(1, sizeof(razor_thread_manager));
 
@@ -443,16 +550,47 @@ razor_thread_manager* razorAHRS(speed_t baudRate, char* port, int mode) {
 	pthread_mutex_init(&manager->settings_protect, NULL);
 	pthread_mutex_init(&manager->data_protect, NULL);
 	pthread_cond_init(&manager->data_updated, NULL);
+	pthread_cond_init(&manager->update, NULL);
 
     // saving port id and name in the settings
     manager->settings->tty_fd = open(port, O_RDWR | O_NONBLOCK);
     manager->settings->baudRate = baudRate;
     manager->settings->port = port;
     manager->settings->streaming_Mode = (mode == 1) ? single : continuous;
+    manager->settings->output_Format = (format == 1) ? binary : fourbyte;
     manager->settings->messageOn = message;
 	manager->dataUpdated = false;
 
 	return manager;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
+int razorAHRS_calibration(razor_thread_manager *manager){
+
+	pthread_mutex_lock(&manager->settings_protect);
+
+    //saving current termios configurations of tty_fd
+    if (tcgetattr(manger->settings->tty_fd, &manager->settings->old_tio) != 0) {
+        manager->settings->tio_config_changed = false;
+
+        /*reactivating the previous configurations of STDOUT_FILENO 
+        because of breaking the process */
+        resetConfig(manager->settings);
+
+        return -1;
+    }
+
+    tio_Config(manager->settings->tty_fd, manager->settings->baudRate);
+    manager->settings->tio_config_changed = true;
+
+	pthread_mutex_unlock(&manager->settings_protect);
+
+	manager->razor_is_running = true;
+
+    manager->thread_id = pthread_create(&manager->thread, NULL, (void*) &calibratingRazor, manager);
+
+    return 0;	
 }
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -480,11 +618,6 @@ int razorAHRS_start(razor_thread_manager *manager){
     settings->tio_config_changed = true;
 
 	pthread_mutex_unlock(&manager->settings_protect);
-
-    if (initRazor(manager->settings) == false) {
-        razorAHRS_quit(manager);
-        return -1;
-    }
 
 	manager->razor_is_running = true;
 
@@ -527,6 +660,19 @@ void razorAHRS_stop(razor_thread_manager *manager){
 
 /*----------------------------------------------------------------------------------------------------*/
 
+/*  requests a single data frame
+ */
+int razorAHRS_request(razor_thread_manager *manager){
+	if(manager->settings->streaming_Mode != single) return -1;
+	pthread_mutex_lock(&(manager->data_protect));	
+	manager->data->dataRequest = true;
+	pthread_mutex_unlock(&(manager->data_protect));
+	pthread_cond_broadcast(&(manager->update));
+	return 0;
+}
+
+/*----------------------------------------------------------------------------------------------------*/
+
 void* razorPrinter(void* args){
 
     razor_thread_manager* manager = (razor_thread_manager*) args;
@@ -559,7 +705,7 @@ void razorPrinter_start(razor_thread_manager *manager, pthread_t *printer){
 
 /*----------------------------------------------------------------------------------------------------*/
 
-int razorPrinter_quit(razor_thread_manager *manager){
+int razorPrinter_stop(razor_thread_manager *manager){
     manager->printer_is_running = false;
     return 0;
 }

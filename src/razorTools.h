@@ -25,19 +25,25 @@
 
 /*----------------------------------------------------------------------------------------------------*/
 
-	enum oFormat {text, binary};
+	/*  text: char array with undefined length, starts with "YPR" and terminates with "\n"
+	 *  binary: 12 Byte format, equals 3 float values
+	 *  32bit: 4 Byte format, equal to the long format but isn't readable as a long, containing 
+	 *         all three sensor angles as kind of a 10 Bit "integer"
+     */
+	enum oFormat {text, binary, fourbyte};
 	typedef enum oFormat outputFormat;
 
 /*----------------------------------------------------------------------------------------------------*/
 
 	/* The struggle is, to transform the binary data of the serial stream
-	 * into useful float values. It's just a matter of interpretting ones
+	 * into useful values. It's just a matter of interpretting ones
 	 * and zeros. So we can use the same memory location and don't care if
-	 * we put four characters inside or one float value, both cases require
-	 * four bytes. We do this using a union structure... */ 
+	 * we put four characters inside, one float value or the razor specific 32 bit 
+	 * data format. All cases require four bytes. We do this using a union structure... */ 
 	union rzrBffr{
 		float f;
 		char ch[4];
+		long l;
 	};
 	typedef union rzrBffr razorBuffer;
 
@@ -66,6 +72,7 @@
 		pthread_mutex_t settings_protect;
 		pthread_mutex_t data_protect;
 		pthread_cond_t data_updated;
+		pthread_cond_t update;
 		int thread_id;
 		pthread_t thread;
 		bool dataUpdated;
@@ -82,8 +89,12 @@
 		/*
 		 * Flag that is managed by valueCheck() function
 		 * true: the current values don't match the valid range
-		 * false: the current values are inside the valid range*/
+		 * false: the current values are inside the valid range */
 		bool data_fail;
+
+		/* 
+		 * Flag to signal if someone requests an update of the data */
+		bool dataRequest;
 
 		/* array that stores the sensor data
 		 *
@@ -94,10 +105,10 @@
 
 		/* union structure to store blocks of 
 		 *  4 Byte received by the tracker (equal 
-		 *  to the size of a single float value.
+		 *  to the size of a single float or long value.
 		 *  for further information look at 
 		 *  razorTools.h */
-		razorBuffer floatBuffer;
+		razorBuffer buffer;
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -105,14 +116,14 @@
 	/*  data type to store the calibration values
 	 *	                |        |        |          |          |          |
 	 *	TYPE OF CALIBR. |   0    |   1    |     2    |     3    |     4    |    5
-	 *	________________|________|________|__________|__________|__________|_________
-	 *	                |        |        |          |          |          |
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *   accelerometer  | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
-	 *	----------------|--------|--------|----------|----------|----------|---------
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	 magnetometer   | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
-	 *	----------------|--------|--------|----------|----------|----------|---------
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	 gyrometer      | x      | x_aver | y        | y_aver   | z        | z_aver
-	 *                  |        |        |          |          |          |
+	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 */
 	struct calibData{
 
@@ -154,7 +165,7 @@
 		 *  to the size of a single float value.
 		 *  for further information look at 
 		 *  razorTools.h */
-		razorBuffer floatBuffer;
+		razorBuffer buffer;
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
