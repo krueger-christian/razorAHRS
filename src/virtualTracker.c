@@ -1,3 +1,5 @@
+#include <errno.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -8,26 +10,27 @@
 #include <fcntl.h>
 #include <termios.h>
 
+#include <signal.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
 
 #include <errno.h>
 
-enum STREAMINGMODE { STREAMINGMODE_SINGLE, STREAMINGMODE_CONTINOUS };
+enum STREAMINGMODE { STREAMINGMODE_ONREQUEST, STREAMINGMODE_CONTINOUS };
 enum STREAMINGFORMAT { STREAMINGFORMAT_ASCII, STREAMINGFORMAT_BINARY };
 
 struct vt_adjustment {
   struct termios old_tio;
   struct termios old_stdio;
 
-  enum STREAMINGFORMAT output_Format;
+  enum STREAMINGFORMAT streamingformat;
   enum STREAMINGMODE output_Mode;
 
   char *vt_port;
   int tty_fd;
   int vt_frequency;
-  unsigned int waitingTime; //in ms
+  unsigned int waitingTime;     //in ms
   speed_t vt_baudRate;
 };
 
@@ -38,21 +41,15 @@ unsigned long elapsed_ms (struct timeval start, struct timeval end) {
   return (long) ((end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 }
 
-void send_token_sync (struct vt_adjustment setting, unsigned char sync_id1, unsigned char sync_id2) {
-  unsigned char sync_message[] = {'#', 'S', 'Y', 'N', 'C', 'H', sync_id1, sync_id2, '\r', '\n'};
-  printf ("sending: %s", sync_message);
-
-  write (setting.tty_fd, sync_message, 10); //TODO: Replace 10
-}
-
 bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
+
   //Setup socket
   struct vt_adjustment setting;
   memset (&setting, 0, sizeof (setting));
   setting.vt_port = port;
   setting.vt_baudRate = baudRate;
   setting.vt_frequency = frequency;
-  setting.output_Format = STREAMINGFORMAT_ASCII;
+  setting.streamingformat = STREAMINGFORMAT_ASCII;
   setting.output_Mode = STREAMINGMODE_CONTINOUS;
   setting.waitingTime = 1000 / frequency;
 
@@ -69,6 +66,10 @@ bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
   fcntl (STDIN_FILENO, F_SETFL, O_NONBLOCK);    // make the reads non-blocking
 
   setting.tty_fd = open (setting.vt_port, O_RDWR | O_NONBLOCK);
+  if (setting.tty_fd == -1) {
+    printf("Socket %s could not be opened: errno %i\n.", setting.vt_port, errno);
+    return -1;
+  }
 
   struct termios tio;
   memset (&tio, 0, sizeof (tio));
@@ -84,66 +85,80 @@ bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
 
   printf ("Connecting to: %s (%d) \r\n", setting.vt_port, setting.tty_fd);
 
-  //Prepare for writing
-
-  unsigned char read_byte;
-  unsigned int read_byte_length = 0;
-
-  bool request = false;
-
+  float data[3];
   while (true) {
+    bool request = false;
+
+    //Receiving
+    unsigned char read_byte[3];
+    unsigned int read_byte_length;
+
     read_byte_length = read (setting.tty_fd, &read_byte, 1);
 
-    // INPUT CHECK
-    if ((read_byte_length == 1) && (read_byte = '#')) {
-      printf ("\r\nreading: %c", read_byte);
-      read_byte_length = read (setting.tty_fd, &read_byte, 1);
+    if (read_byte_length == 1 && read_byte[0] == '#') { //Sync?
+      read_byte_length = read (setting.tty_fd, &read_byte, 3);  //Accept: {'s', id1, id2}
 
-      if ((read_byte_length == 1) && (read_byte == 's')) {
-        printf ("%c\n\r", read_byte);
+      if (read_byte_length == 3 && read_byte[0] == 's') {
+        unsigned char sync_message[] = { '#', 'S', 'Y', 'N', 'C', 'H', read_byte[1], read_byte[2], '\r', '\n' };
+        printf ("Replying to sync request: %s", sync_message);
 
-        // Sync Request
-        unsigned char sync_id[] = {' ', ' '};
-        read (setting.tty_fd, &sync_id, 2);
-
-        send_token_sync (setting, sync_id[0], sync_id[1]);
-
-      } else if ((read_byte_length == 1) && (read_byte == 'o')) {
-        printf ("%c", read_byte);
-        read_byte_length = read (setting.tty_fd, &read_byte, 1);
-
-        printf ("%c\r\n", read_byte);
-
-        // set output mode to STREAMINGFORMAT_BINARY (3 * 4 bytes = three floating point values)
-        if ((read_byte_length == 1) && (read_byte == 'b'))
-          setting.output_Format = STREAMINGFORMAT_BINARY;
-        // set output mode to string (STREAMINGFORMAT_ASCII)
-        else if ((read_byte_length == 1) && (read_byte == 't'))
-          setting.output_Format = STREAMINGFORMAT_ASCII;
-        else if ((read_byte_length == 1) && (read_byte == '1'))
-          setting.output_Mode = STREAMINGMODE_CONTINOUS;
-        else if ((read_byte_length == 1) && (read_byte == '0'))
-          setting.output_Mode = STREAMINGMODE_SINGLE;
-      } else if ((read_byte_length == 1) && (read_byte == 'f')) {
-        printf ("%c", read_byte);
-        request = true;
+        write (setting.tty_fd, sync_message, sizeof (sync_message) / sizeof (sync_message[0]));
+        continue;
       }
     }
 
-    if (setting.output_Mode == STREAMINGMODE_CONTINOUS || request == true) {
-      float data[3];
+    if (read_byte_length == 1 && read_byte[0] == 'o') { //Command?
+      read_byte_length = read (setting.tty_fd, &read_byte, 1);
 
-      ssize_t len = snprintf (NULL, 0, "#YPR=%3.2f,%3.2f,%3.2f\r\n", data[0], data[1], data[2]);
-      char output[len];
-      sprintf (output, "#YPR=%3.2f,%3.2f,%3.2f\r\n", data[0], data[1], data[2]);
-
-      switch (setting.output_Format) {
-        case STREAMINGFORMAT_BINARY:
-          write (setting.tty_fd, data, 12); //12? It should be shorter, or?
+      if (read_byte_length == 1) {
+        switch (read_byte[0]) {
+        case 'b':
+          printf("Sending binary.\n");
+          setting.streamingformat = STREAMINGFORMAT_BINARY;
           break;
-        case STREAMINGFORMAT_ASCII:
-          write (setting.tty_fd, output, len);
+        case 't':
+          printf("Sending ASCII.\n");
+          setting.streamingformat = STREAMINGFORMAT_ASCII;
+          break;
+        case '1':
+          printf("Sending continously.\n");
+          setting.output_Mode = STREAMINGMODE_CONTINOUS;
+          break;
+        case '0':
+          printf("Sending on request.\n");
+          setting.output_Mode = STREAMINGMODE_ONREQUEST;
+          break;
+        case 'f':
+          request = true;
+          break;
+        }
+      }
+    }
+
+    //Sending
+    if (setting.output_Mode == STREAMINGMODE_CONTINOUS || request == true) {
+      data[0] = (data[0] + 1);
+      data[1] = (data[1] + 1);
+      data[2] = (data[2] + 1);
+
+
+      ssize_t len = snprintf (NULL, 0, "#YPR=%06.2f,%06.2f,%06.2f\n", data[0], data[1], data[2]);
+      char output[len];
+      sprintf (output, "#YPR=%06.2f,%06.2f,%06.2f", data[0], data[1], data[2]);
+      printf("%s\r\n", output);
+
+      ssize_t write_result;
+      switch (setting.streamingformat) {
+      case STREAMINGFORMAT_BINARY:
+        write_result = write (setting.tty_fd, data, 3 * sizeof (float));
         break;
+      case STREAMINGFORMAT_ASCII:
+        write_result = write (setting.tty_fd, output, len);
+        break;
+      }
+      
+      if (write_result <= 0) {
+         printf("Write to socket failed with result %i; errno %i", write_result, errno);
       }
       request = false;
     }
