@@ -1,23 +1,19 @@
-/*****************************************************************
- *                                                               *
- *     C-coded functions to read the the measuring data of       *
- *     the 9 Degree of Measurement Attitude and Heading          *
- *     Reference System of Sparkfun's "9DOF Razor IMU"           *
- *     and "9DOF Sensor Stick"                                   *
- *                                                               *
- *     a former version, used as reference and coded in C++      *
- *     was written by Peter Bartz:                               *
- *     https://github.com/ptrbrtz/razor-9dof-ahrs                *
- *                                                               *
- *     Quality & Usability Lab, TU Berlin                        *
- *     & Deutsche Telekom Laboratories                           *
- *     Christian Krüger                                          *
- *     2016                                                      * 
- *                                                               *
- *     further informations:                                     *
- *     https://github.com/krueger-christian/razorAHRS            *
- *                                                               *
- ****************************************************************/
+/*  
+ *  @file   razorAHRS.c   
+ *  @author Christian Krüger
+ *  @date   26.10.2016
+ *  @organisation Quality & Usablity Lab, T-Labs, TU Berlin
+ *
+ *  parses serial streamed data of the 9 Degree of 
+ *  Measurement Attitude and Heading Reference System 
+ *  of Sparkfun's "9DOF Razor IMU" and "9DOF Sensor Stick"
+ *
+ *  based on a parser written in C++ by Peter Bartz:
+ *  https://github.com/ptrbrtz/razor-9dof-ahrs
+ *
+ *  for further informations check the README file 
+ */
+
 
 #ifndef RAZORAHRS_C
 #define RAZORAHRS_C
@@ -28,66 +24,69 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
-#include <string.h> // needed for memset
+#include <string.h>
 #include <sys/time.h>
 #include <pthread.h>
 
-/* includes several types of storing 
- * data and settings as well as the
- * functions
- *   - razorsleep( int milliseconds)
- *   - long elapsed_ms(struct timeval start, struct timeval end),
- *     returning the difference between two points in time
- *   - stdio_Config(),
- *     configuring the standart output (not necessary)
- *   - tio_Config(int tty_fd, speed_t baudRate)
- *     configuring the termios controlled serial output
- *   - resetConfig(struct adjustment *settings)
- */
+/* includes the structures containing settings and data
+ * as well as several utility functions */
 #include "razorTools.h"
 
-#include "config.h" // includes user settings
+/* disable/enable the output of status reports on the console */
+#define message true
 
+/* disable/enable extra status reports, e.g. buffer content */
 #define debug 0
+
+/* color codes for colored text on stdout */
+#define COL_NORMAL 	"\x1B[0m"
+#define COL_RED		"\x1B[31m"
+#define COL_GREEN	"\x1B[32m"
+#define COL_YELLOW	"\x1B[33m"
+#define COL_BLUE	"\x1B[34m"
+#define COL_MAGENTA	"\x1B[35m"
+#define COL_CYAN	"\x1B[36m"
+#define COL_WHITE	"\x1B[37m"
+
+/* time limit (milliseconds) to wait during synchronization*/
+const int connect_timeout_ms = 5000;
 
 const char *token_reference = "#SYNCH00\r\n"; 
 const int token_length = 10;
 
 /*----------------------------------------------------------------------------------------------------*/
 
-	bool  synch           ( struct thread_parameter *parameter);
-	bool  valueCheck      ( struct thread_parameter *parameter );
+bool  synch           ( struct thread_parameter *parameter);
+bool  valueCheck      ( struct thread_parameter *parameter );
 
-	bool  readContinuously( struct thread_parameter *parameter );
-	bool  readOnRequest   ( struct thread_parameter *parameter );
-	void* readingRazor    ( struct thread_parameter *parameter );
-	
-	struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int format );
-	int   razorAHRS_start   ( struct thread_parameter *parameter );
-	int   razorAHRS_quit    ( struct thread_parameter *parameter );
-	void  razorAHRS_stop    ( struct thread_parameter *parameter );
-	int   razorAHRS_request ( struct thread_parameter *parameter );
+bool  readContinuously( struct thread_parameter *parameter );
+bool  readOnRequest   ( struct thread_parameter *parameter );
+void* readingRazor    ( struct thread_parameter *parameter );
 
-	void  send_calibration_request ( struct thread_parameter *parameter, int step );
-	void* calibratingRazor         ( struct thread_parameter *parameter);
-	int   razorAHRS_calibration    ( struct thread_parameter *parameter, char* pathToCalibFile);
+struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int format );
+int   razorAHRS_start   ( struct thread_parameter *parameter );
+int   razorAHRS_quit    ( struct thread_parameter *parameter );
+void  razorAHRS_stop    ( struct thread_parameter *parameter );
+int   razorAHRS_request ( struct thread_parameter *parameter );
 
-	void* razorPrinter             ( void* args);
-	void  razorPrinter_start       ( struct thread_parameter *parameter, pthread_t *printer);
-	int   razorPrinter_stop        ( struct thread_parameter *parameter);
+void  send_calibration_request ( struct thread_parameter *parameter, int step );
+void* calibratingRazor         ( struct thread_parameter *parameter);
+int   razorAHRS_calibration    ( struct thread_parameter *parameter, char* pathToCalibFile);
+
+void* razorPrinter             ( void* args);
+void  razorPrinter_start       ( struct thread_parameter *parameter, pthread_t *printer);
+int   razorPrinter_stop        ( struct thread_parameter *parameter);
 
 /*----------------------------------------------------------------------------------------------------*/
 
 // function to synchronize incoming bytes with the tracker
-bool synch( struct thread_parameter *parameter){
-
+bool synch( struct thread_parameter *parameter)
+{
     if (parameter->setup->messageOn) printf("  !\n    SYNCHRONIZING: ");
 
     char input = 'D'; // Buffer to store one byte
 
-    // Get some space to store the token we receive after requesting
-    char* token;
-    token = calloc(token_length, sizeof (char));
+    char* token = calloc(token_length, sizeof (char));
 
     tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
@@ -98,35 +97,39 @@ bool synch( struct thread_parameter *parameter){
     gettimeofday(&t0, NULL);
     t1 = t0;
 
-    // make sure, control variable is set to 0
     size_t token_pos = 0;
 
 	/* SYNCHRONIZATION
-    * Looking for correct token. */
-    while (1) {
-        // check if input available...
-        if (read(parameter->setup->tty_fd, &input, 1) > 0) {
-            /* ...is the first byte equal to the first
-             * character of the reference token */
-            if (input == '#') {
+     * Looking for correct token. */
+    while (1)
+	{
+        // input available?
+        if (read(parameter->setup->tty_fd, &input, 1) > 0) 
+		{
+			// Does it match with first character of the token?            
+			if (input == '#')
+			{
                 token_pos++;
 
                 token[0] = input;
 
                 // ... first byte matchs, so get the next bytes
-                while (token_pos < token_length) {
-                    if (read(parameter->setup->tty_fd, &input, 1) > 0) {
+                while (token_pos < token_length) 
+				{
+                    if (read(parameter->setup->tty_fd, &input, 1) > 0) 
+					{
                         token[token_pos] = input;
                         token_pos++;
                     }
                 }
 
                 /* if received token is equal to the reference token
-                 * the variable synchronized is set to true */
+                 * the variable "synchronized" is set to true */
                 parameter->setup->synchronized = (strncmp(token, token_reference,10) == 0) ? true : false;
 
-                if (parameter->setup->synchronized == true) {
-                    if (parameter->setup->messageOn) printf("__okay.\n\n\r");
+                if (parameter->setup->synchronized == true)
+				{
+                    if (parameter->setup->messageOn) printf("%s__okay.\n\n\r", COL_GREEN);
                     free(token);
                     return true;
                 }
@@ -134,19 +137,21 @@ bool synch( struct thread_parameter *parameter){
         }
 
         gettimeofday(&t2, NULL);
-        if (elapsed_ms(t1, t2) > 200) {
+        if (elapsed_ms(t1, t2) > 200)
+		{
             // 200ms elapsed since last request and no answer -> request synch again
             // (this happens when DTR is connected and Razor resets on connect)
 
 			tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
-            for(int i = 0; (i <= 10) && (write(parameter->setup->tty_fd, "#s00", 4) != 4); i++){
-                razorSleep(20);
-            }
+            for(int i = 0; (i <= 10) && (write(parameter->setup->tty_fd, "#s00", 4) != 4); i++)
+				razorSleep(20);
 
             t1 = t2;
         }
-        if (elapsed_ms(t0, t2) > connect_timeout_ms) { //timeout?
+		//timeout?
+        if (elapsed_ms(t0, t2) > connect_timeout_ms)
+		{
             parameter->setup->synchronized = false;
             if (parameter->setup->messageOn) printf("___failed. (time out)\n\n\r"); // TIME OUT!		
             free(token);
@@ -154,16 +159,12 @@ bool synch( struct thread_parameter *parameter){
         }
         token_pos = 0;
     }
-
 }
 
 /*----------------------------------------------------------------------------------------------------*/
 
-bool valueCheck( struct thread_parameter *parameter) {
-
-	pthread_mutex_lock(&parameter->data_protect);
-	pthread_mutex_lock(&parameter->setup_protect);
-
+bool valueCheck( struct thread_parameter *parameter)
+{
 	int yaw   = parameter->data->values[0];
 	int pitch = parameter->data->values[1];
 	int roll  = parameter->data->values[2];
@@ -172,20 +173,19 @@ bool valueCheck( struct thread_parameter *parameter) {
 	if(pitch < 0) pitch *= -1;
 	if(roll < 0)  roll  *= -1;
 
-    if ((yaw > 360) || (pitch > 360) || (roll > 360)) {
-		if(synch(parameter) == false) parameter->data->data_fail = true;
-    } else parameter->data->data_fail = false;
-
-	pthread_mutex_unlock(&parameter->data_protect);
-	pthread_mutex_unlock(&parameter->setup_protect);
+    if ((yaw > 360) || (pitch > 360) || (roll > 360))
+	{
+		parameter->data->data_fail = true;
+    }
+	else parameter->data->data_fail = false;
 
     return !(parameter->data->data_fail);
 }
 
 /*----------------------------------------------------------------------------------------------------*/
 
-bool readContinuously( struct thread_parameter *parameter) {
-
+bool readContinuously( struct thread_parameter *parameter)
+{
     char singleByte = 'D';
     int result = 0;
     int bufferInput = 0;
@@ -205,28 +205,35 @@ bool readContinuously( struct thread_parameter *parameter) {
 
     tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
-	if(synch(parameter) == false){
+	if(synch(parameter) == false)
+	{
 		pthread_mutex_unlock(&parameter->setup_protect);		
 		return false;
 	}
 
-	while(parameter->razor_is_running){
+	while(parameter->razor_is_running)
+	{
         result = read(parameter->setup->tty_fd, &singleByte, 1);
 
 		#if debug        
 			printf("Inside buffer: %d \t read bytes: %d\n\r", bufferInput, result);
 		#endif
  
-        if (result == 1) {
+        if (result == 1)
+		{
 			// ensure that currently only this function changes razor data
 			pthread_mutex_lock(&parameter->data_protect);
             parameter->data->buffer.ch[bufferInput] = singleByte;
             bufferInput++;
 
-            if (bufferInput == 4) {
-				if(parameter->setup->streaming_Format == STREAMINGFORMAT_BINARY_CUSTOM){
-					if(dewrappingValues( parameter->data ) == -1) {
-						if(synch(parameter) == false){
+            if (bufferInput == 4)
+			{
+				if(parameter->setup->streaming_Format == STREAMINGFORMAT_BINARY_CUSTOM)
+				{
+					if(dewrappingValues( parameter->data ) == -1)
+					{
+						if(synch(parameter) == false)
+						{
 							pthread_mutex_unlock(&parameter->data_protect);
 							pthread_mutex_unlock(&parameter->setup_protect);
 							return false;
@@ -234,7 +241,8 @@ bool readContinuously( struct thread_parameter *parameter) {
 					}
 					else values_pos = 3;
 				}
-				else{
+				else
+				{
 		            parameter->data->values[values_pos] = parameter->data->buffer.f;
 		            values_pos++;
 				}
@@ -243,23 +251,30 @@ bool readContinuously( struct thread_parameter *parameter) {
 			pthread_mutex_unlock(&parameter->data_protect);
         }
 		else if((result > 1) && parameter->setup->messageOn ) \
-			printf("INFO reading error (more bytes then requested)\r\n"); 
+			printf("%sINFO reading error (more bytes then requested)\r\n", COL_RED); 
 
-        // if 3 byte are read put them into the data structure
-        if (values_pos == 3) {
+        // if 3 bytes are read put them into the data structure
+        if (values_pos == 3)
+		{
+			pthread_mutex_lock(&parameter->data_protect);            
 
-			/* before storing the input, check if it fits 
-			 * in the valid range */
-            pthread_mutex_unlock(&parameter->setup_protect);
-            if (valueCheck(parameter) == false) return false;
-            pthread_mutex_lock(&parameter->setup_protect);
-			
-			pthread_mutex_lock(&parameter->data_protect);
-
-			// signal that the data was updated
-			parameter->dataUpdated = true;
-			pthread_mutex_unlock  (&parameter->data_protect);
-			pthread_cond_broadcast(&parameter->data_updated);
+			/* Does the input value belong to the valid range? */
+            if (valueCheck(parameter) == false)
+			{
+				pthread_mutex_unlock(&parameter->data_protect);
+				if(synch(parameter) == false)
+				{
+				    pthread_mutex_unlock(&parameter->setup_protect);
+					return false;
+				}
+			}
+			else
+			{ 			
+				// signal that the data was updated
+				parameter->dataUpdated = true;
+				pthread_mutex_unlock  (&parameter->data_protect);
+				pthread_cond_broadcast(&parameter->data_updated);
+			}
 
             values_pos = 0;
 			pthread_mutex_unlock(&parameter->setup_protect);
@@ -274,8 +289,8 @@ bool readContinuously( struct thread_parameter *parameter) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
-bool readOnRequest(struct thread_parameter *parameter) {
-
+bool readOnRequest(struct thread_parameter *parameter)
+{
     char singleByte = 'D';
     int result = 0;
     int bufferInput = 0;
@@ -295,26 +310,26 @@ bool readOnRequest(struct thread_parameter *parameter) {
 
     tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
-	if(synch(parameter) == false){
+	if(synch(parameter) == false)
+	{
 		pthread_mutex_unlock(&parameter->setup_protect);		
 		return false;
 	}
 
-    /* variables to store time values
-     * used to measure how long 
-     * requesting takes */
+    /* variables to store time values 
+     * used to measure how long requesting takes */
     struct timeval t0, t1, t2;
 
-	while(parameter->razor_is_running){
-
-		while( !(parameter->data->dataRequest) ){
+	while(parameter->razor_is_running)
+	{
+		while( !(parameter->data->dataRequest) )
 			pthread_cond_wait(&parameter->update, &parameter->setup_protect);
-		}
 
 		// try to send request
-		if(write(parameter->setup->tty_fd, "#f", 2) != 2){
+		if(write(parameter->setup->tty_fd, "#f", 2) != 2)
+		{
 			// ... in case of failed sending
-			printf("INFO: unable to send request\n\r");
+			printf("%sINFO: unable to send request\n\r", COL_RED);
 			pthread_mutex_lock(&parameter->data_protect);
 			parameter->data->dataRequest = false;
 			pthread_mutex_unlock(&parameter->data_protect);
@@ -323,46 +338,52 @@ bool readOnRequest(struct thread_parameter *parameter) {
 	    gettimeofday(&t0, NULL);
 	    t1 = t0;
 
-        while (parameter->data->dataRequest) {
+        while (parameter->data->dataRequest)
+		{
         	result = read(parameter->setup->tty_fd, &singleByte, 1);
 
 			#if debug
-            	printf("Inside buffer: %d \t read bytes: %d\n\r", bufferInput, result);
+            	printf("%sInside buffer: %d \t read bytes: %d\n\r", COL_BLUE, bufferInput, result);
 			#endif
 
-            if (result == 1) {
+            if (result == 1)
+			{
 				// ensure that currently only this function changes razor data
 				pthread_mutex_lock(&parameter->data_protect);
 		        parameter->data->buffer.ch[bufferInput] = singleByte;
 		        bufferInput++;
 
-		        if (bufferInput == 4) {
-		        	if(parameter->setup->streaming_Format == STREAMINGFORMAT_BINARY_CUSTOM){
-
+		        if (bufferInput == 4)
+				{
+		        	if(parameter->setup->streaming_Format == STREAMINGFORMAT_BINARY_CUSTOM)
+					{
 						if(dewrappingValues( parameter->data ) == -1) 
 						{
 							#if debug
-							printf("GET: %ld\r\n", parameter->data->buffer.l);
+							printf("%sGET: %ld\r\n", COL_RED, parameter->data->buffer.l);
 							bitprinter(parameter->data->buffer.l, 32);
 							#endif 							
 
-							if(parameter->setup->messageOn) printf("INFO: reading error\n\r");
+							if(parameter->setup->messageOn) printf("%sINFO: reading error\n\r", COL_RED);
 
-							if(synch(parameter) == false){
+							if(synch(parameter) == false)
+							{
 								pthread_mutex_unlock(&parameter->setup_protect);
 								pthread_mutex_unlock(&parameter->data_protect);	
 								return false;
 							}
 						}
-						else {
+						else
+						{
 						  values_pos = 3;
-							#if debug						
-							printf("GET: %ld\r\n", parameter->data->buffer.l);								
+							#if debug					
+							printf("%sGET: %ld\r\n", COL_CYAN, parameter->data->buffer.l);
 							bitprinter(parameter->data->buffer.l, 32);
 							#endif
 						}
 					}
-					else{
+					else
+					{
                 		parameter->data->values[values_pos] = parameter->data->buffer.f;
                 		values_pos++;
 					}
@@ -371,23 +392,31 @@ bool readOnRequest(struct thread_parameter *parameter) {
 				pthread_mutex_unlock(&parameter->data_protect);
             }
 			else if((result > 1) && parameter->setup->messageOn)\
-				printf("INFO reading error (more bytes then requested)\r\n"); 
+				printf("%sINFO: reading error (more bytes then requested)\r\n", COL_RED); 
 
             // if new data is available on the serial port, print it out
-            if (values_pos == 3) {
-				/* before storing the input, check if it fits 
-				 * in the valid range */
-		        pthread_mutex_unlock(&parameter->setup_protect);
-		        if (valueCheck(parameter) == false) return false;
-		        pthread_mutex_lock(&parameter->setup_protect);
+            if (values_pos == 3)
+			{
+				pthread_mutex_lock(&parameter->data_protect);            
 
-				// signal that the data was updated
-				pthread_mutex_lock(&parameter->data_protect);
-				parameter->dataUpdated = true;
-				parameter->data->dataRequest = false;
-				pthread_mutex_unlock(&parameter->data_protect);
-
-				pthread_cond_broadcast(&parameter->data_updated);
+				/* Does the input value belong to the valid range? */
+		        if (valueCheck(parameter) == false)
+				{
+					pthread_mutex_unlock(&parameter->data_protect);
+					if(synch(parameter) == false)
+					{
+						pthread_mutex_unlock(&parameter->setup_protect);
+						return false;
+					}
+				}
+				else
+				{ 			
+					// signal that the data was updated
+					parameter->dataUpdated = true;
+					parameter->data->dataRequest = false;
+					pthread_mutex_unlock  (&parameter->data_protect);
+					pthread_cond_broadcast(&parameter->data_updated);
+				}
 
 		        values_pos = 0;
 				pthread_mutex_unlock(&parameter->setup_protect);
@@ -397,7 +426,8 @@ bool readOnRequest(struct thread_parameter *parameter) {
 
             gettimeofday(&t2, NULL);
 
-            if (elapsed_ms(t1, t2) > 200) {
+            if (elapsed_ms(t1, t2) > 200)
+			{
             	// 200ms elapsed since last request and no answer -> request synch again
                 // (this happens when DTR is connected and Razor resets on connect)
                 write(parameter->setup->tty_fd, "#f", 2);
@@ -406,17 +436,17 @@ bool readOnRequest(struct thread_parameter *parameter) {
                 t1 = t2;
 			}
 
-            // check if time out is reached 
-            if (elapsed_ms(t0, t2) > connect_timeout_ms) {
+            // Time out? 
+            if (elapsed_ms(t0, t2) > connect_timeout_ms)
+			{
 				// TIME OUT!
-                if (parameter->setup->messageOn) printf("INFO: request failed. (time out)\n\r");
+                if (parameter->setup->messageOn) printf("%sINFO: request failed. (time out)\n\r", COL_RED);
 				parameter->data->dataRequest = false;
             }
 		}
 	}
 
     pthread_mutex_unlock(&parameter->setup_protect);
-
     return true;
 }
 
@@ -442,8 +472,8 @@ void send_calibration_request ( struct thread_parameter *parameter, int step ){
 }
 /*----------------------------------------------------------------------------------------------------*/
 
-void* calibratingRazor ( struct thread_parameter *parameter ) {
-
+void* calibratingRazor ( struct thread_parameter *parameter )
+{
 	bool calibrating = true;
 	bool calibration_successful = false;
 	bool sending_request = true;
@@ -492,7 +522,6 @@ void* calibratingRazor ( struct thread_parameter *parameter ) {
 	
 	while(calibrating)
 	{
-
 		if(sending_request)
 		{
 			sending_request = false;
@@ -538,7 +567,8 @@ void* calibratingRazor ( struct thread_parameter *parameter ) {
     }
 
 	// exporting calibration data
-	if(calibration_successful){
+	if(calibration_successful)
+	{
 		FILE *fp;
 		char filename[22] = "/razorcalibration.txt";
 		char path[strlen(parameter->pathToCalibFile) + strlen(filename)];
@@ -564,9 +594,9 @@ void* calibratingRazor ( struct thread_parameter *parameter ) {
 		fprintf(fp, "const float magn_ellipsoid_center[3] = {0.0, 0.0, 0.0};\n"); // TODO 
 		fprintf(fp, "const float magn_ellipsoid_transform[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};\n");
 		fprintf(fp, "\n");		  
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_X ((float) 0.0)\n", calibMat[2][0]);
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Y ((float) 0.0)\n", calibMat[2][2]);
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Z ((float) 0.0)\n", calibMat[2][4]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_X ((float) %f)\n", calibMat[2][0]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Y ((float) %f)\n", calibMat[2][2]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Z ((float) %f)\n", calibMat[2][4]);
 
 		fclose(fp);
 	}
@@ -577,18 +607,23 @@ void* calibratingRazor ( struct thread_parameter *parameter ) {
 
 /*----------------------------------------------------------------------------------------------------*/
 
-void* readingRazor ( struct thread_parameter *parameter ) {
-
+void* readingRazor ( struct thread_parameter *parameter )
+{
 	pthread_mutex_lock(&parameter->setup_protect);
-    if (parameter->setup->streaming_Mode == STREAMINGMODE_CONTINUOUS) {
+    if (parameter->setup->streaming_Mode == STREAMINGMODE_CONTINUOUS)
+	{
 		pthread_mutex_unlock(&parameter->setup_protect);
         readContinuously(parameter);
-    } else if (parameter->setup->streaming_Mode == STREAMINGMODE_ONREQUEST) {
+    }
+	else if (parameter->setup->streaming_Mode == STREAMINGMODE_ONREQUEST)
+	{
 		pthread_mutex_unlock(&parameter->setup_protect);
 		readOnRequest(parameter);
-    } else {
+    }
+	else
+	{
 		pthread_mutex_unlock(&parameter->setup_protect);
-        printf("INFO: No streaming mode selected!");
+        printf("%sINFO: No streaming mode selected!", COL_YELLOW);
     }
 
     razorAHRS_quit(parameter);
@@ -604,17 +639,20 @@ void* readingRazor ( struct thread_parameter *parameter ) {
  * format: 0 -> integer (4 Byte per frame) 
  *         1 -> floating point (12 Byte per frame)
  */
-struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int format ) {
+struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int format )
+{
+	if(port == NULL)
+	{
+		printf("%sNo Port selected. Please define port: e.g. /dev/ttyUSB0\r\n", COL_RED);
+		return NULL;
+	}	
 
 	struct thread_parameter *parameter;
 	parameter = (struct thread_parameter*) calloc(1, sizeof(struct thread_parameter));
 
-    // setting description that is used during the whole process
     parameter->setup = (struct razorSetup*) calloc(1, sizeof (struct razorSetup));
 
-    // construction to store the data
-    //struct razorData *data;
-	parameter->data = (struct razorData*) calloc(1, sizeof (struct razorData));
+ 	parameter->data = (struct razorData*) calloc(1, sizeof (struct razorData));
 
 	pthread_mutex_init(&parameter->setup_protect, NULL);
 	pthread_mutex_init(&parameter->data_protect, NULL);
@@ -682,8 +720,8 @@ int razorAHRS_start ( struct thread_parameter *parameter)
     if (tcgetattr(parameter->setup->tty_fd, &parameter->setup->old_tio) != 0)
 	{
         parameter->setup->tio_config_changed = false;
-        printf("INFO: Saving configuration of xx failed.\n\r\
-      --> tcgetattr(fd, &old_tio)\r\n", parameter->setup->port);
+        printf("%sINFO: Saving configuration of %s failed.\n\r \
+				--> tcgetattr(fd, &old_tio)\r\n", COL_RED, parameter->setup->port);
 
         /*reactivating the previous configurations of STDOUT_FILENO 
         because of breaking the process */
@@ -776,8 +814,9 @@ void* razorPrinter ( void* args )
 		pthread_mutex_unlock(&parameter->data_protect);
 
 		pthread_mutex_lock(&parameter->data_protect);
-        printf("YAW = %6.1f \t PITCH = %6.1f \t ROLL = %6.1f \r\n", \
-				parameter->data->values[0], parameter->data->values[1], parameter->data->values[2]);
+        printf("%sYAW = %6.1f \t %sPITCH = %6.1f \t %sROLL = %6.1f \r\n", COL_NORMAL, \
+				parameter->data->values[0], COL_YELLOW, parameter->data->values[1], COL_CYAN, parameter->data->values[2]);
+		if(parameter->data->data_fail == true) printf("%sDATA FAILURE -- INVALID VALUES\r\n", COL_RED);	
 		parameter->dataUpdated = false;
 		pthread_mutex_unlock(&parameter->data_protect);
 	}

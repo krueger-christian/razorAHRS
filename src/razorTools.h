@@ -1,12 +1,13 @@
-/*****************************************************************
- *                                                               *
- * (c) 2016 / QU Lab / T-Labs / TU Berlin                        *
- *                                                               *
- * --> more informations and changeable user settings            *
- *     in the razorAHRS.c file or on github                      *
- *     https://github.com/krueger-christian/razorAHRS            *
- *                                                               *
- ****************************************************************/
+/*  
+ *  @file   razorTools.c   
+ *  @author Christian Krüger
+ *  @date   26.10.2016
+ *  @organisation Quality & Usablity Lab, T-Labs, TU Berlin
+ *
+ *  additional functions for the file razorAHRS.c
+ *
+ *  for further informations check the README file
+ */
 
 #ifndef RAZORTOOLS_H
 #define RAZORTOOLS_H
@@ -70,7 +71,6 @@
 
 		char *port;
     	int tty_fd;
-		int vt_frequency;
 		int waitingTime;
 		speed_t baudRate;
 	};
@@ -134,9 +134,9 @@
 	 *	TYPE OF CALIBR. |   0    |   1    |     2    |     3    |     4    |    5
 	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
-	 *   accelerometer  | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
+	 *   accelerometer  | x_max  | x_min  | y_max    | y_min    | z_max    | z_min
 	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
-	 *	 magnetometer   | x_min  | x_max  | y_min    | y_max    | z_min    | z_max
+	 *	 magnetometer   | x_max  | x_min  | y_max    | y_min    | z_max    | z_min
 	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
 	 *	 gyrometer      | x      | x_aver | y        | y_aver   | z        | z_aver
 	 *	––––––––––––––––+––––––––+––––––––+––––––––––+––––––––––+––––––––––+–––––––––
@@ -205,78 +205,6 @@
 		waitTime.tv_nsec = (milliseconds % 1000) * 1000000;
 		nanosleep(&waitTime, NULL);
 	}
-
-/*----------------------------------------------------------------------------------------------------*/
-
-/* kind of flushing the input.
- *
- * On one hand because the tracker started in textmode and sends 
- * strings/frames of the format:
- * "YPR=<yaw-value>,<pitch-value2>,<roll-value3>\r\n",
- * after receiving '\n' we are sure that with the next byte we 
- * will receive the start of a new frame 
- *
- * On the other hand it could be a problem after switching from
- * continuous streaming to single frame streaming. During continuous
- * streaming are so many reads made that there are still a lot of 
- * frames in the pipe after even after the switch. We need the second
- * flush type:
- *
- * 1. flush type: flushing until end-of-line character is detected
- *                --> use flag flushType = 0
- *
- * 2. flush type: flushing until no input is readable anymore
- *                --> use flag flushType = 1
- */
-bool razorFlush(struct razorSetup* settings, int flush_timeout_ms, int flushType)
-{
-	char singleByte = 'D';
-
-	/* variables to store time values
-	 * used to measure how long 
-	 * synchronization takes */
-	struct timeval t0, t1;
-	gettimeofday(&t0, NULL);
-
-	//flush to end of line
-	if(flushType == 0)
-	{
-		while(singleByte != '\n')
-		{	
-			read(settings->tty_fd,&singleByte,1);
-
-			// check if time out is reached
-			gettimeofday(&t1, NULL);
-			if (elapsed_ms(t0, t1) > flush_timeout_ms) 
-			{
- 				// TIME OUT!
-				if(settings->messageOn) printf("INFO: Flushing failed. (time out)\n\r");	
-				return false;
-			}
-		}
-	}
-	//flush full input
-	else if(flushType == 1)
-	{
-		while(read(settings->tty_fd,&singleByte,1) > 0)
-		{
-			// check if time out is reached
-			gettimeofday(&t1, NULL);
-			if (elapsed_ms(t0, t1) > flush_timeout_ms)
-			{
-				// TIME OUT!	
-				if(settings->messageOn) printf("INFO: Flushing failed. (time out)\n\r");		
-				return false;
-			}
-		}
-	}
-	else
-	{
-		if(settings->messageOn) printf("INFO: Flushing failed. (invalid flushing type flag)\n\r");
-		return false;		
-	}
-	return true;
-}
 
 /*----------------------------------------------------------------------------------------------------*/
 

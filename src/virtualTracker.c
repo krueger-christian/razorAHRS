@@ -85,7 +85,7 @@ bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
 
   printf ("Connecting to: %s (%d) \r\n", setting.vt_port, setting.tty_fd);
 
-  float data[3];
+  float data[3] = {0.0, 0.0, 0.0};
   while (true) {
     bool request = false;
 
@@ -137,9 +137,9 @@ bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
 
     //Sending
     if (setting.output_Mode == STREAMINGMODE_CONTINOUS || request == true) {
-      data[0] = (data[0] + 1);
-      data[1] = (data[1] + 1);
-      data[2] = (data[2] + 1);
+	  data[0] = (data[0] <= 360) ? (data[0] + 1) : 0;
+      data[1] = (data[1] <= 360) ? (data[1] + 1) : 0;
+      data[2] = (data[2] <= 360) ? (data[2] + 1) : 0;
 
 
       ssize_t len = snprintf (NULL, 0, "#YPR=%06.2f,%06.2f,%06.2f\n", data[0], data[1], data[2]);
