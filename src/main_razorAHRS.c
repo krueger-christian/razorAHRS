@@ -97,6 +97,21 @@ int main(int argc, char* argv[]) {
         } 
       //  printf("\n  !\n\r    INVALID INPUT\n\n\r");
     }
+
+	char* string;
+	string = calloc(50, sizeof(char));
+
+	if(argc < 2){
+		printf("\n  !\n\r    NAME PORTNAME, e.g. /dev/ttyUSB0\n\r");
+		printf("\n\r");
+		printf("       (CONFIRM WITH ENTER)\n\n\n\r");
+
+	    // if new data is available on the console...
+		scanf("%s", string);
+	}
+
+
+
 	/* creating a management structure containing
      * a setting structure and a data structure as well as
 	 * mutexes to ensure thread save use
@@ -104,7 +119,7 @@ int main(int argc, char* argv[]) {
     struct thread_parameter* parameter = razorAHRS(B57600, argv[1], mode, format);
 
 	// starting the tracker
-	if( razorAHRS_start(parameter) < 0 ) return -1;
+	if(( parameter != NULL ) && (razorAHRS_start(parameter) < 0 )) return -1;
 	
 	// starting a printer to output the data on standart output
 	pthread_t printer;
