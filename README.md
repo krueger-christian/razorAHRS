@@ -117,6 +117,7 @@ The accuracy of the values are theoretically not as good as within the binary fl
 
 The checksum is equal to the sum of the ones of all values at the first bit position.
 e.g.
+
 | VALUE    | decimal | binary      | first bit  |
 | -------- | -------:| -----------:| ----------:|
 | yaw      |     3   | 00000 00011 |     1      |
