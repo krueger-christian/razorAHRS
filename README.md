@@ -142,10 +142,13 @@ All functions use the struct thread_parameter as argument.
   * expecting 3 floating point values (12 byte per frame)
 * STREAMINGFORMAT_BINARY_CUSTOM
   * expecting 3 integer values wrapped in a custum format (4 Byte per frame)
-
-
-The custom binary format was created to minimize the amount of send data which reduces the power consumption. While beeing connected via cable it doesn't matter. But while using Bluetooth and a battery it extends the time until you have to charge.
-The accuracy of the values are theoretically not as good as within the binary floating point format, because the custom format is based on integers. Practically it doesn't matter because the calculated sensor data is not that much precise.
+  * The custom binary format was created to minimize the amount of send data 
+    which reduces the power consumption. While beeing connected via cable it 
+    doesn't matter. But while using Bluetooth and a battery it extends the 
+    time until you have to charge. The accuracy of the values are theoretically
+    not as good as within the binary floating point format, because the custom 
+    format is based on integers. Practically it doesn't matter because the 
+    calculated sensor data is not that much precise.
 
 
 |   BITS    | 31 downto 22 | 21 downto 12 | 11 downto 2 | 1 downto 0
