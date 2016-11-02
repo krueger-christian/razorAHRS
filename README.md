@@ -105,13 +105,15 @@ $ sh start_razorAHRS.sh
   * Enable ERROR message output.
 
 
-#### others
+#### Requesting single frame
 
 * __"#f"__
   * Request one output frame - useful when continuous output is disabled and updates are
     required in larger intervals only. Though #f only requests one reply, replies are still
     bound to the internal 20ms (50Hz) time raster. So worst case delay that #f can add is 19.99ms.
 
+
+#### Synchronize
 * __"#s<xy>"__
   * Request synch token - useful to find out where the frame boundaries are in a continuous
     binary stream or to see if tracker is present and answering. The tracker will send
@@ -142,6 +144,7 @@ All functions use the struct thread_parameter as argument.
 * STREAMINGFORMAT_BINARY_CUSTOM
   * expecting 3 integer values wrapped in a custum format (4 Byte per frame)
 
+
 The custom binary format was created to minimize the amount of send data which reduces the power consumption. While beeing connected via cable it doesn't matter. But while using Bluetooth and a battery it extends the time until you have to charge.
 The accuracy of the values are theoretically not as good as within the binary floating point format, because the custom format is based on integers. Practically it doesn't matter because the calculated sensor data is not that much precise.
 
@@ -149,6 +152,7 @@ The accuracy of the values are theoretically not as good as within the binary fl
 |   BITS    | 31 downto 22 | 21 downto 12 | 11 downto 2 | 1 downto 0
 |-----------|--------------|--------------|-------------|-------------
 | __VALUE__ | yaw          | pitch        | roll        | checksum
+
 
 
 The checksum is equal to the sum of the ones of all values at the first bit position. e.g.:
@@ -162,7 +166,8 @@ The checksum is equal to the sum of the ones of all values at the first bit posi
 | checksum |     2   |          10 | 1+1+0 = 2  |  
 
 
-#### reader functions
+
+### reader functions
 
 * __Preparing the reader__
   * Returns the struct that is used as argument in all other functions.
@@ -178,7 +183,7 @@ razorAHRS_start(struct_parameter *parameter)
 ```	
 
 * __Stopping the reader__
-  *returns 0 if succesful, otherwise -1
+  * returns 0 if succesful, otherwise -1
 ```C
 razorAHRS_quit(struct_parameter *parameter)
 ```
@@ -191,7 +196,7 @@ razorAHRS_request(struct_parameter *parameter)
 ```
 
 
-#### printing value functions
+### printing value functions
 
 * __provide a value printer on stdout__
 ```C
@@ -203,7 +208,7 @@ razorPrinter(struct thread_parameter *parameter);
 razorPrinter_start(struct thread_parameter *parameter)
 ```
 
-* __stopping the printer
+* __stopping the printer__
 ```C
 razorPrinter_stop(struct thread_parameter *parameter)
 ```
@@ -211,7 +216,7 @@ razorPrinter_stop(struct thread_parameter *parameter)
 
 ***
 
-## calibration assistant
+## Calibration Assistant
 
 !!! The following description is not working yet, because the calibration assistant is under construction.
 
@@ -223,7 +228,6 @@ razorPrinter_stop(struct thread_parameter *parameter)
 ```
 
 
-***
 ***
 
 
@@ -238,7 +242,9 @@ Preparing the ports:
 ```bash
 $ sh connect_virtual_ports.sh
 ```
+
 It will:
+
 1. create two connected ports via Socat
 2. print out the port names
 
@@ -264,13 +270,13 @@ __Authors__
 * Dennis Guse
 
 __Institution__
-Quality & Usability Lab, Deutsche Telekom Laboratories, TU Berlin
+* Quality & Usability Lab, Deutsche Telekom Laboratories, TU Berlin
 
 __Date__
-November 2016
+* November 2016
 
 __former version (source)__
-[RazorAHRS](https://github.com/ptrbrtz/razor-9dof-ahrs)
+* [https://github.com/ptrbrtz/razor-9dof-ahrs](https://github.com/ptrbrtz/razor-9dof-ahrs)
 
 
 
