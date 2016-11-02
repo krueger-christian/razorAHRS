@@ -150,7 +150,7 @@ All functions use the struct thread_parameter as argument.
     format is based on integers. Practically it doesn't matter because the 
     calculated sensor data is not that much precise.
 
-
+* 
 |   BITS    | 31 downto 22 | 21 downto 12 | 11 downto 2 | 1 downto 0
 |-----------|--------------|--------------|-------------|-------------
 | __VALUE__ | yaw          | pitch        | roll        | checksum
