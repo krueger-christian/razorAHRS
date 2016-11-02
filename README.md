@@ -1,9 +1,9 @@
 # Parser for headtracker razorAHRS
+## v.1.0
 
 ##### Program to read binary data stream of the [RazorAHRS](https://github.com/ptrbrtz/razor-9dof-ahrs) headtracker, written in C. Contains a parser and a virtual headtracker.
 
 
-***
 ***
 
 ## Installation
@@ -167,6 +167,7 @@ The checksum is equal to the sum of the ones of all values at the first bit posi
 
 
 
+
 ### reader functions
 
 * __Preparing the reader__
@@ -194,6 +195,7 @@ razorAHRS_quit(struct_parameter *parameter)
 ```C
 razorAHRS_request(struct_parameter *parameter)
 ```
+
 
 
 ### printing value functions
@@ -249,6 +251,7 @@ It will:
 2. print out the port names
 
 
+
 Read the printed port names (something like /dev/pts/1) and go on:
 ```bash
 $ ./bin/main_razorAHRSvirtual <first port name, e.g. /dev/pts/1>
@@ -261,7 +264,7 @@ $ ./bin/main_razorAHRS <second port name, e.g. /dev/pts/2>
 
 
 ***
-***
+
 
 ## Credits
 
