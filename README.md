@@ -97,16 +97,15 @@ All functions use the struct thread_parameter as argument.
 
 Streaming modes
 ---
-• STREAMINGMODE_ONREQUEST
-
-• STREAMINGMODE_CONTINUOUS
+* STREAMINGMODE_ONREQUEST
+* STREAMINGMODE_CONTINUOUS
 
 
 Streaming formats
 ---
-• STREAMINGFORMAT_ASCII		: expecting data as string (undefined frame size)
-• STREAMINGFORMAT_BINARY_FLOAT	: expecting 3 floating point values (12 byte per frame)
-• STREAMINGFORMAT_BINARY_CUSTOM	: expecting 3 integer values wrapped in a custum format (4 Byte per frame)
+* STREAMINGFORMAT_ASCII		: expecting data as string (undefined frame size)
+* STREAMINGFORMAT_BINARY_FLOAT	: expecting 3 floating point values (12 byte per frame)
+* STREAMINGFORMAT_BINARY_CUSTOM	: expecting 3 integer values wrapped in a custum format (4 Byte per frame)
 
 The custom binary format was created to minimize the amount of send data which reduces the power consumption. While beeing connected via cable it doesn't matter. But while using Bluetooth and a battery it extends the time until you have to charge.
 The accuracy of the values are theoretically not as good as within the binary floating point format, because the custom format is based on integers. Practically it doesn't matter because the calculated sensor data is not that much precise.
