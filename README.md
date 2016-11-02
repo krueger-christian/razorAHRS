@@ -110,21 +110,20 @@ Streaming formats
 The custom binary format was created to minimize the amount of send data which reduces the power consumption. While beeing connected via cable it doesn't matter. But while using Bluetooth and a battery it extends the time until you have to charge.
 The accuracy of the values are theoretically not as good as within the binary floating point format, because the custom format is based on integers. Practically it doesn't matter because the calculated sensor data is not that much precise.
 
-------+--------------+--------------+-------------+-------------
-BITS  | 31 downto 22 | 21 downto 12 | 11 downto 2 | 1 downto 0
-------+--------------+--------------+-------------+-------------
-VALUE | yaw          | pitch        | roll        | checksum
-------+--------------+--------------+-------------+-------------
+| BITS  | 31 downto 22 | 21 downto 12 | 11 downto 2 | 1 downto 0
+|-------|--------------|--------------|-------------|-------------
+| VALUE | yaw          | pitch        | roll        | checksum
+
 
 The checksum is equal to the sum of the ones of all values at the first bit position.
 e.g. 
-      VALUE    | decimal | binary      | first bit 
-    -----------+---------+-------------+------------
-      yaw      |     3   | 00000 00011 |     1     
-      pitch    |    51   | 00001 10011 |     1     
-      roll     |   128   | 00100 00100 |     0     
-     ----------+------------------------------------
-      checksum |     2   |          10 | 1+1+0 = 2     
+    | VALUE    | decimal | binary      | first bit  |
+    |----------+--------:|------------:|-----------:|
+    | yaw      |     3   | 00000 00011 |     1      |
+    | pitch    |    51   | 00001 10011 |     1      |
+    | roll     |   128   | 00100 00100 |     0      |
+    |----------|--------:|------------:|:----------:|
+    | checksum |     2   |          10 | 1+1+0 = 2  |  
 
 
 Basic functions
