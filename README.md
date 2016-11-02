@@ -1,5 +1,4 @@
 # Parser for headtracker razorAHRS
-## v.1.0
 
 ##### Program to read binary data stream of the [RazorAHRS](https://github.com/ptrbrtz/razor-9dof-ahrs) headtracker, written in C. Contains a parser and a virtual headtracker.
 
