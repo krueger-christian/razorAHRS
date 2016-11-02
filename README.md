@@ -98,6 +98,7 @@ All functions use the struct thread_parameter as argument.
 Streaming modes
 ---
 • STREAMINGMODE_ONREQUEST
+
 • STREAMINGMODE_CONTINUOUS
 
 
