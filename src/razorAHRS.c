@@ -33,10 +33,13 @@
 #include "razorTools.h"
 
 /* disable/enable the output of status reports on the console */
-#define message true
+#define message_on 1
 
 /* disable/enable extra status reports, e.g. buffer content */
 #define debug 0
+
+/* use only extended magnetometer calibration mode */
+#define EXT_MAGN_CAL 1 
 
 /* color codes for colored text on stdout */
 #define COL_NORMAL 	"\x1B[0m"
@@ -69,7 +72,7 @@ int   razorAHRS_quit    ( struct thread_parameter *parameter );
 void  razorAHRS_stop    ( struct thread_parameter *parameter );
 int   razorAHRS_request ( struct thread_parameter *parameter );
 
-void  send_calibration_request ( struct thread_parameter *parameter, int step );
+void  send_calibration_request ( struct thread_parameter *parameter);
 void* calibratingRazor         ( struct thread_parameter *parameter);
 int   razorAHRS_calibration    ( struct thread_parameter *parameter, char* pathToCalibFile);
 
@@ -452,14 +455,23 @@ bool readOnRequest(struct thread_parameter *parameter)
 
 /*----------------------------------------------------------------------------------------------------*/
 
-void send_calibration_request ( struct thread_parameter *parameter, int step ){
-
-	if(step == 0) // go to next sensor
+void send_calibration_request ( struct thread_parameter *parameter)
+{
+	if(parameter->calibration->step == X_MAX) // go to next sensor
 	{
 		write(parameter->setup->tty_fd, "#on", 3);
 		razorSleep(20);
+
+		#if EXT_MAGN_CAL
+		if(parameter->calibration->sensor == MAG)
+		{
+			write(parameter->setup->tty_fd, "#on", 3); // jump to gyrometer calibration
+			razorSleep(20);
+			parameter->calibration->sensor = GYR;
+		}
+		#endif
 	}
-	else if((step > 0) && (step < 6)) // go to next step
+	else if((parameter->calibration->step > 0) && (parameter->calibration->step < 6)) // go to next step
 	{
 		write(parameter->setup->tty_fd, "#ox", 3);
 		razorSleep(20);
@@ -482,25 +494,20 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 	int bufferInput = 0;
 	int result;
 
-	/* 0: Accelerometer
-	 * 1: Magnetometer
-	 * 2: Gyrometer	*/
-	int sensor = 0;
-
-	/* 0: x-axis maximum
-	 * 1: x-axis minimum
-	 * 2: y-axis maximum
-	 * 3: y-axis minimum
-	 * 4: z-axis maximum
-	 * 5: z-axis minimum */
-	int step = 0;
+	parameter->calibration->sensor = ACC;
+	parameter->calibration-> step = X_MAX;
 
 	/*	xmax  xmin  ymax  ymin  zmax  zmin  ¦  acc
 	 *	xmax  xmin  ymax  ymin  zmax  zmin  ¦  mag
 	 *	xave  xave  yave  yave  zave  zave  ¦  gyr
 	 */
-	float calibMat[3][6] = {{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0},{0.0,0.0,0.0,0.0,0.0,0.0}};
-
+	for(int i = 0; i < 3; i++)
+	{
+		for(int j = 0; i < 6; i++)
+		{
+			parameter->calibration->measurements[i][j] = 0.0;
+		}
+	}
 	pthread_mutex_lock(&parameter->setup_protect);
 
 	// enable continuous streaming
@@ -513,19 +520,14 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 
     tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
-	if(synch(parameter) == false)
-	{
-		pthread_mutex_unlock(&parameter->setup_protect);		
-		calibrating = false;
-	}
-
+	if(synch(parameter) == false) calibrating = false; // don't enter loop and terminate function
 	
 	while(calibrating)
 	{
 		if(sending_request)
 		{
 			sending_request = false;
-			send_calibration_request(parameter, step);
+			send_calibration_request(parameter);
 		}
 
         result = read(parameter->setup->tty_fd, &singleByte, 1);
@@ -539,31 +541,46 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 
             if (bufferInput == 4)
 			{
-				calibMat[sensor][step] = parameter->data->buffer.f;
+				parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step] = \
+					parameter->data->buffer.f;
 		        bufferInput = 0;
+
+				printf("SENSOR: %d STEP: %d -- Got Value %f.\r\n", \
+					parameter->calibration->sensor + 1, parameter->calibration->step + 1, \
+					parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step]);
 
 				// signal that the data was updated
 				parameter->dataUpdated = true;
 				pthread_mutex_unlock  (&parameter->data_protect);
 				pthread_cond_broadcast(&parameter->data_updated);
 			}
+			else pthread_mutex_unlock(&parameter->data_protect);
         }
-		else if(result > 1)
-		{
-			pthread_mutex_unlock(&parameter->setup_protect);		
-			calibrating = false; // TODO: maybe return false ?
-		}
+		else if(result > 1) calibrating = false; // exit loop --> terminate function 
 
-		if(parameter->data->dataRequest)
+		pthread_mutex_lock(&parameter->data_protect);
+		if(parameter->data->next_calibration_step)
 		{
-			step++;
-			if(step > 5)
+			parameter->calibration->step++;
+			if(parameter->calibration->step > 5)
 			{
-				step = 0;
-				sensor++;
+				parameter->calibration->step = 0;
+				switch(parameter->calibration->sensor)
+				{
+					case ACC:
+						parameter->calibration->sensor = MAG;
+						break;
+					case MAG:
+						parameter->calibration->sensor = GYR;
+						break;
+					default:
+						parameter->calibration->sensor = ACC; // TODO really? or better a new state like "FIN"
+				}	
 			}
 			sending_request = true;
+			parameter->data->next_calibration_step = false; 
 		}
+		pthread_mutex_unlock(&parameter->data_protect);
     }
 
 	// exporting calibration data
@@ -576,30 +593,32 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 		strcat(path, filename);
 		fp=fopen( path, "w");
 
-		fprintf(fp, "#define ACCEL_X_MAX ((float) %f)\n", calibMat[0][0]);
-		fprintf(fp, "#define ACCEL_X_MIN ((float) %f)\n", calibMat[0][1]); 
-		fprintf(fp, "#define ACCEL_Y_MAX ((float) %f)\n", calibMat[0][2]);
-		fprintf(fp, "#define ACCEL_Y_MIN ((float) %f)\n", calibMat[0][3]);
-		fprintf(fp, "#define ACCEL_Z_MAX ((float) %f)\n", calibMat[0][4]);
-		fprintf(fp, "#define ACCEL_Z_MIN ((float) %f)\n", calibMat[0][5]);
+		fprintf(fp, "#define ACCEL_X_MAX ((float) %f)\n", parameter->calibration->measurements[0][0]);
+		fprintf(fp, "#define ACCEL_X_MIN ((float) %f)\n", parameter->calibration->measurements[0][1]); 
+		fprintf(fp, "#define ACCEL_Y_MAX ((float) %f)\n", parameter->calibration->measurements[0][2]);
+		fprintf(fp, "#define ACCEL_Y_MIN ((float) %f)\n", parameter->calibration->measurements[0][3]);
+		fprintf(fp, "#define ACCEL_Z_MAX ((float) %f)\n", parameter->calibration->measurements[0][4]);
+		fprintf(fp, "#define ACCEL_Z_MIN ((float) %f)\n", parameter->calibration->measurements[0][5]);
 		fprintf(fp, "\n");
-		fprintf(fp, "#define MAGN_X_MAX ((float) %f)\n", calibMat[1][0]);
-		fprintf(fp, "#define MAGN_X_MIN ((float) %f)\n", calibMat[1][1]);
-		fprintf(fp, "#define MAGN_Y_MAX ((float) %f)\n", calibMat[1][2]);
-		fprintf(fp, "#define MAGN_Y_MIN ((float) %f)\n", calibMat[1][3]);
-		fprintf(fp, "#define MAGN_Z_MAX ((float) %f)\n", calibMat[1][4]);
-		fprintf(fp, "#define MAGN_Z_MIN ((float) %f)\n", calibMat[1][5]);
+		fprintf(fp, "#define MAGN_X_MAX ((float) %f)\n",  parameter->calibration->measurements[1][0]);
+		fprintf(fp, "#define MAGN_X_MIN ((float) %f)\n",  parameter->calibration->measurements[1][1]);
+		fprintf(fp, "#define MAGN_Y_MAX ((float) %f)\n",  parameter->calibration->measurements[1][2]);
+		fprintf(fp, "#define MAGN_Y_MIN ((float) %f)\n",  parameter->calibration->measurements[1][3]);
+		fprintf(fp, "#define MAGN_Z_MAX ((float) %f)\n",  parameter->calibration->measurements[1][4]);
+		fprintf(fp, "#define MAGN_Z_MIN ((float) %f)\n",  parameter->calibration->measurements[1][5]);
 		fprintf(fp, "\n");
 		fprintf(fp, "#define CALIBRATION__MAGN_USE_EXTENDED true\n"); 
 		fprintf(fp, "const float magn_ellipsoid_center[3] = {0.0, 0.0, 0.0};\n"); // TODO 
 		fprintf(fp, "const float magn_ellipsoid_transform[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};\n");
 		fprintf(fp, "\n");		  
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_X ((float) %f)\n", calibMat[2][0]);
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Y ((float) %f)\n", calibMat[2][2]);
-		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Z ((float) %f)\n", calibMat[2][4]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_X ((float) %f)\n", parameter->calibration->measurements[2][0]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Y ((float) %f)\n", parameter->calibration->measurements[2][2]);
+		fprintf(fp, "#define GYRO_AVERAGE_OFFSET_Z ((float) %f)\n", parameter->calibration->measurements[2][4]);
 
 		fclose(fp);
 	}
+
+	pthread_mutex_unlock(&parameter->setup_protect);		
 
     razorAHRS_quit(parameter);
     pthread_exit(NULL);
@@ -648,11 +667,9 @@ struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int
 	}	
 
 	struct thread_parameter *parameter;
-	parameter = (struct thread_parameter*) calloc(1, sizeof(struct thread_parameter));
-
-    parameter->setup = (struct razorSetup*) calloc(1, sizeof (struct razorSetup));
-
- 	parameter->data = (struct razorData*) calloc(1, sizeof (struct razorData));
+	parameter        = (struct thread_parameter*) calloc(1, sizeof(struct thread_parameter));
+    parameter->setup = (struct razorSetup*)       calloc(1, sizeof (struct razorSetup));
+ 	parameter->data  = (struct razorData*)        calloc(1, sizeof (struct razorData));
 
 	pthread_mutex_init(&parameter->setup_protect, NULL);
 	pthread_mutex_init(&parameter->data_protect, NULL);
@@ -660,13 +677,13 @@ struct thread_parameter* razorAHRS ( speed_t baudRate, char* port, int mode, int
 	pthread_cond_init (&parameter->update, NULL);
 
     // saving port id and name in the setup
-    parameter->setup->tty_fd = open(port, O_RDWR | O_NONBLOCK);
-    parameter->setup->baudRate = baudRate;
-    parameter->setup->port = port;
+    parameter->setup->tty_fd           = open(port, O_RDWR | O_NONBLOCK);
+    parameter->setup->baudRate         = baudRate;
+    parameter->setup->port             = port;
     parameter->setup->streaming_Mode   = (mode == 1)   ? STREAMINGMODE_ONREQUEST : STREAMINGMODE_CONTINUOUS;
     parameter->setup->streaming_Format = (format == 1) ? STREAMINGFORMAT_BINARY_FLOAT : STREAMINGFORMAT_BINARY_CUSTOM;
-    parameter->setup->messageOn = message;
-	parameter->dataUpdated = false;
+    parameter->setup->messageOn        = message_on;
+	parameter->dataUpdated             = false;
 
 	return parameter;
 }
@@ -691,7 +708,9 @@ int razorAHRS_calibration ( struct thread_parameter *parameter, char* pathToCali
     }
 
     tio_Config(parameter->setup->tty_fd, parameter->setup->baudRate);
-    parameter->setup->tio_config_changed = true;
+    parameter->setup->tio_config_changed   = true;
+	parameter->setup->streaming_Mode       = STREAMINGMODE_CALIBRATION;
+	parameter->data->next_calibration_step = false;
 
 	pthread_mutex_unlock(&parameter->setup_protect);
 
@@ -703,6 +722,8 @@ int razorAHRS_calibration ( struct thread_parameter *parameter, char* pathToCali
 		strcpy(parameter->pathToCalibFile, "/home/user/Desktop");
 	} 
 	else parameter->pathToCalibFile = pathToCalibFile;
+
+	parameter->calibration = (struct razorCalibration*) calloc(1, sizeof(struct razorCalibration));
 
     parameter->thread_id = pthread_create(&parameter->thread, NULL, (void*) &calibratingRazor, parameter);
 
@@ -791,12 +812,35 @@ void razorAHRS_stop ( struct thread_parameter *parameter )
  */
 int razorAHRS_request ( struct thread_parameter *parameter )
 {
-	if(parameter->setup->streaming_Mode != STREAMINGMODE_ONREQUEST) return -1;
-	pthread_mutex_lock(&(parameter->data_protect));	
-	parameter->data->dataRequest = true;
-	pthread_mutex_unlock  (&(parameter->data_protect));
-	pthread_cond_broadcast(&(parameter->update));
-	return 0;
+
+	if(parameter->setup->streaming_Mode == STREAMINGMODE_ONREQUEST)
+	{
+		pthread_mutex_lock(&(parameter->data_protect));	
+		parameter->data->dataRequest = true;
+		pthread_mutex_unlock  (&(parameter->data_protect));
+		pthread_cond_broadcast(&(parameter->update));
+		return 0;
+	}
+	else if(parameter->setup->streaming_Mode == STREAMINGMODE_CALIBRATION)
+	{	
+		printf("Request calibration\r\n");
+		pthread_mutex_lock(&(parameter->data_protect));
+		parameter->data->next_calibration_step = true;
+		pthread_mutex_unlock(&(parameter->data_protect));
+		pthread_cond_broadcast(&(parameter->update));
+		return 0;
+	}
+
+	return -1;
+}
+/*----------------------------------------------------------------------------------------------------*/
+
+void razorAHRS_calibration_reset(struct thread_parameter *parameter)
+{
+	if(parameter->setup->streaming_Mode == STREAMINGMODE_CALIBRATION)
+	{
+		parameter->calibration->step = X_MAX;
+	}
 }
 
 /*----------------------------------------------------------------------------------------------------*/

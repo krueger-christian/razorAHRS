@@ -25,7 +25,8 @@
 	enum streamingMode
 	{
 		STREAMINGMODE_ONREQUEST, 
-		STREAMINGMODE_CONTINUOUS
+		STREAMINGMODE_CONTINUOUS,
+		STREAMINGMODE_CALIBRATION
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -40,6 +41,36 @@
 		STREAMINGFORMAT_ASCII, 
 		STREAMINGFORMAT_BINARY_FLOAT, 
 		STREAMINGFORMAT_BINARY_CUSTOM
+	};
+
+/*----------------------------------------------------------------------------------------------------*/
+
+	enum calibrationStep
+	{
+		X_MAX,   // x-axis maximum
+		X_MIN,   // x-axis minimum
+		Y_MAX,   // y-axis maximum
+		Y_MIN,   // y-axis minimum
+		Z_MAX,   // z-axis maximum
+		Z_MIN    // z-axis minimum
+	};
+
+/*----------------------------------------------------------------------------------------------------*/
+
+	enum sensorType
+	{
+		ACC,   // accelerometer
+		MAG,   // magnetometer
+		GYR    // gyrometer
+	};
+
+/*----------------------------------------------------------------------------------------------------*/
+
+	struct razorCalibration
+	{
+		enum sensorType sensor;
+		enum calibrationStep step;
+		float measurements[3][6];
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
@@ -79,8 +110,9 @@
 
 	struct thread_parameter
 	{
-		struct razorSetup* setup;
-		struct razorData*  data;
+		struct razorSetup*       setup;
+		struct razorData*        data;
+		struct razorCalibration* calibration;
 
 		pthread_mutex_t setup_protect;
 		pthread_mutex_t data_protect;
@@ -112,6 +144,8 @@
 		/* Flag to signal if someone requests an update of the data */
 		bool dataRequest;
 
+		bool next_calibration_step;
+
 		/* array that stores the sensor data
 		 *
 		 * values[0] = Yaw
@@ -128,6 +162,9 @@
 	};
 
 /*----------------------------------------------------------------------------------------------------*/
+
+
+	// TODO: Check if this struct could be erased
 
 	/*  data type to store the calibration values
 	 *	                |        |        |          |          |          |
