@@ -96,42 +96,51 @@ bool virtualTracker (unsigned int frequency, speed_t baudRate, char *port) {
     read_byte_length = read (setting.tty_fd, &read_byte, 1);
 
     if (read_byte_length == 1 && read_byte[0] == '#') { //Sync?
-      read_byte_length = read (setting.tty_fd, &read_byte, 3);  //Accept: {'s', id1, id2}
+      read_byte_length = read (setting.tty_fd, &read_byte, 1);  //Accept: {'s', '0'}
 
-      if (read_byte_length == 3 && read_byte[0] == 's') {
-        unsigned char sync_message[] = { '#', 'S', 'Y', 'N', 'C', 'H', read_byte[1], read_byte[2], '\r', '\n' };
-        printf ("Replying to sync request: %s", sync_message);
+      if (read_byte_length == 1 && read_byte[0] == 's') {
+        read_byte_length = read (setting.tty_fd, &read_byte, 2);  //Accept: {id1, id2}
+        if (read_byte_length == 2) {
+          unsigned char sync_message[] = { '#', 'S', 'Y', 'N', 'C', 'H', read_byte[0], read_byte[1], '\r', '\n' };
+          printf ("Replying to sync request: %s", sync_message);
 
-        write (setting.tty_fd, sync_message, sizeof (sync_message) / sizeof (sync_message[0]));
+          write (setting.tty_fd, sync_message, sizeof (sync_message) / sizeof (sync_message[0]));
+        }
         continue;
       }
-    }
+    
 
-    if (read_byte_length == 1 && read_byte[0] == 'o') { //Command?
-      read_byte_length = read (setting.tty_fd, &read_byte, 1);
+      if (read_byte_length == 1 && read_byte[0] == 'o') { //Command?
+        read_byte_length = read (setting.tty_fd, &read_byte, 1);
 
-      if (read_byte_length == 1) {
-        switch (read_byte[0]) {
-        case 'b':
-          printf("Sending binary.\n");
-          setting.streamingformat = STREAMINGFORMAT_BINARY;
-          break;
-        case 't':
-          printf("Sending ASCII.\n");
-          setting.streamingformat = STREAMINGFORMAT_ASCII;
-          break;
-        case '1':
-          printf("Sending continously.\n");
-          setting.output_Mode = STREAMINGMODE_CONTINOUS;
-          break;
-        case '0':
-          printf("Sending on request.\n");
-          setting.output_Mode = STREAMINGMODE_ONREQUEST;
-          break;
-        case 'f':
-          request = true;
-          break;
+        if (read_byte_length == 1) {
+          switch (read_byte[0]) {
+          case 'b':
+            printf("Sending binary.\n");
+            setting.streamingformat = STREAMINGFORMAT_BINARY;
+            break;
+          case 't':
+            printf("Sending ASCII.\n");
+            setting.streamingformat = STREAMINGFORMAT_ASCII;
+            break;
+          case '1':
+            printf("Sending continously.\n");
+            setting.output_Mode = STREAMINGMODE_CONTINOUS;
+            break;
+          case '0':
+            printf("Sending on request.\n");
+            setting.output_Mode = STREAMINGMODE_ONREQUEST;
+            break;
+          case 'f':
+            request = true;
+            break;
+          }
         }
+		continue;
+      }
+
+	  if (read_byte_length == 1 && read_byte[0] == 'f') { //Command?
+        request = true;
       }
     }
 
