@@ -271,11 +271,11 @@ void resetConfig(struct razorSetup *setup)
 
 /*----------------------------------------------------------------------------------------------------*/
 
-void bitprinter(long bitarray, int len) 
+void bitprinter(long bitarray, int bitlen) 
 {
 	int counter = 0;	
 
-	for(int i = len-1; i >= 0; i--)
+	for(int i = bitlen-1; i >= 0; i--)
 	{
 		if ((bitarray >> i)&1) printf("1");
 		else printf("0");

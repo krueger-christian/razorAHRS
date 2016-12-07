@@ -32,29 +32,28 @@ long wrappingValues(int value_1, int value_2, int value_3){
 // Output angles: yaw, pitch, roll
 void output_angles()
 {
-  float final_yaw = TO_DEG(yaw) - yaw_up;
-  float final_pitch = TO_DEG(pitch) - pitch_up;
-  float final_roll = TO_DEG(roll) - roll_up;
+
+  union long_buffer buff;
   
   if (output_format == OUTPUT__FORMAT_BINARY)
   {
     float ypr[3];  
-    ypr[0] = final_yaw; // TO_DEG(yaw);
-    ypr[1] = final_pitch; // TO_DEG(pitch);
-    ypr[2] = final_roll; // TO_DEG(roll);
+    ypr[0] = TO_DEG(yaw);
+    ypr[1] = TO_DEG(pitch);
+    ypr[2] = TO_DEG(roll);
     Serial.write((byte*) ypr, 12);  // No new-line
   }
   if (output_format == OUTPUT__FORMAT_FOURBYTE)
   {
-    buff.l = wrappingValues( (int) final_yaw, (int) final_pitch, (int) final_roll);
+    buff.l = wrappingValues( (int) TO_DEG(yaw), (int) TO_DEG(pitch), (int) TO_DEG(roll));
     Serial.write(buff.b, 4);  // No new-lines
   }
   else if (output_format == OUTPUT__FORMAT_TEXT)
   {
       Serial.print("#YPR=");
-      Serial.print(final_yaw); Serial.print(","); // yaw, around z-axis
-      Serial.print(final_pitch); Serial.print(","); // pitch, around y-axis
-      Serial.print(final_roll); Serial.println(); // roll, around x-axis
+      Serial.print(TO_DEG(yaw  )); Serial.print(","); // yaw, around z-axis
+      Serial.print(TO_DEG(pitch)); Serial.print(","); // pitch, around y-axis
+      Serial.print(TO_DEG(roll )); Serial.println();  // roll, around x-axis
   }
 }
 
@@ -63,20 +62,19 @@ void output_calibration(int calibration_sensor)
   if(output_format == OUTPUT__FORMAT_BINARY){
 
     char mode[2];
+    union long_buffer buff;
     if (calibration_sensor == 0)  // Accelerometer
     {
       if(calibration_step == 0) // finding x-maximum
       {
         if (accel[0] > accel_max[0]) accel_max[0] = accel[0];
-        //buff.f = accel_max[0];
-        //buff.f = 15.5;
+        buff.f = accel_max[0];
         Serial.write((byte*) buff.b, 4);
       }
       else if(calibration_step == 1) // finding x-minimum
       {
         if (accel[0] < accel_min[0]) accel_min[0] = accel[0];
-        //buff.f = accel_min[0];
-        buff.f = -18.3;
+        buff.f = accel_min[0];
         Serial.write((byte*) buff.b, 4);
       }
       else if(calibration_step == 2) // finding y-maximum

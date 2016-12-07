@@ -72,7 +72,7 @@ int   razorAHRS_quit    ( struct thread_parameter *parameter );
 void  razorAHRS_stop    ( struct thread_parameter *parameter );
 int   razorAHRS_request ( struct thread_parameter *parameter );
 
-void  send_calibration_request ( struct thread_parameter *parameter);
+bool  send_calibration_request ( struct thread_parameter *parameter);
 void* calibratingRazor         ( struct thread_parameter *parameter);
 int   razorAHRS_calibration    ( struct thread_parameter *parameter, char* pathToCalibFile);
 
@@ -455,32 +455,41 @@ bool readOnRequest(struct thread_parameter *parameter)
 
 /*----------------------------------------------------------------------------------------------------*/
 
-void send_calibration_request ( struct thread_parameter *parameter)
+bool send_calibration_request ( struct thread_parameter *parameter)
 {
+	int result = 0;
+
 	if(parameter->calibration->step == X_MAX) // go to next sensor
 	{
-		write(parameter->setup->tty_fd, "#on", 3);
+		result = write(parameter->setup->tty_fd, "#on", 3);
 		razorSleep(20);
+		printf("send: #on\r\n");
 
 		#if EXT_MAGN_CAL
 		if(parameter->calibration->sensor == MAG)
 		{
-			write(parameter->setup->tty_fd, "#on", 3); // jump to gyrometer calibration
+			result = write(parameter->setup->tty_fd, "#on", 3); // jump to gyrometer calibration
 			razorSleep(20);
 			parameter->calibration->sensor = GYR;
 		}
 		#endif
+
+		printf("send: #on\r\n");
 	}
 	else if((parameter->calibration->step > 0) && (parameter->calibration->step < 6)) // go to next step
 	{
-		write(parameter->setup->tty_fd, "#ox", 3);
+		result = write(parameter->setup->tty_fd, "#ox", 3);
 		razorSleep(20);
+		printf("send: #ox\r\n");
 	}
-	else // reset step
+	else if (parameter->calibration->step > 6 )// reset step
 	{
-		write(parameter->setup->tty_fd, "#oc", 3);
+		result = write(parameter->setup->tty_fd, "#or", 3);
 	    razorSleep(20);
+		printf("send: #or\r\n");
 	}
+
+	return (result = 3) ? true : false;
 }
 /*----------------------------------------------------------------------------------------------------*/
 
@@ -488,7 +497,7 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 {
 	bool calibrating = true;
 	bool calibration_successful = false;
-	bool sending_request = true;
+	bool sending_request = false;
 
 	char singleByte = 'D';
 	int bufferInput = 0;
@@ -518,16 +527,24 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 	write(parameter->setup->tty_fd, "#ob", 3);
     razorSleep(20);
 
+	// enable calibration mode streaming
+	write(parameter->setup->tty_fd, "#oc", 3);
+    razorSleep(20);
+
     tcflush(parameter->setup->tty_fd, TCIFLUSH);
 
-	if(synch(parameter) == false) calibrating = false; // don't enter loop and terminate function
+	if(synch(parameter) == false) calibrating = false; // if false: don't enter loop and terminate function
 	
 	while(calibrating)
 	{
+		// request frame
+		//write(parameter->setup->tty_fd, "#f", 3);
+	    //razorSleep(20);
+
 		if(sending_request)
 		{
 			sending_request = false;
-			send_calibration_request(parameter);
+			if(send_calibration_request(parameter) == false) printf("request failed\r\n");
 		}
 
         result = read(parameter->setup->tty_fd, &singleByte, 1);
@@ -541,22 +558,34 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 
             if (bufferInput == 4)
 			{
-				parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step] = \
-					parameter->data->buffer.f;
-		        bufferInput = 0;
+				bufferInput = 0;
+				bitprinter(parameter->data->buffer.l, 32); // debugging option
 
-				printf("SENSOR: %d STEP: %d -- Got Value %f.\r\n", \
-					parameter->calibration->sensor + 1, parameter->calibration->step + 1, \
-					parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step]);
+				/* Does the input value belong to the valid range? */
+        	    if ((parameter->data->buffer.f > 1000) || (parameter->data->buffer.f < -1000))
+				{
+					printf("Invalid Value\r\n");
+					calibrating = synch(parameter) ;
+				}
+				else
+				{
+					parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step] = \
+						parameter->data->buffer.f;
+			    
+					printf("SENSOR: %d STEP: %d -- Got Value %6.1f.\r\n", \
+						parameter->calibration->sensor + 1, parameter->calibration->step + 1, \
+						parameter->data->buffer.f);
+	//					parameter->calibration->measurements[parameter->calibration->sensor][parameter->calibration->step]);
 
-				// signal that the data was updated
-				parameter->dataUpdated = true;
-				pthread_mutex_unlock  (&parameter->data_protect);
-				pthread_cond_broadcast(&parameter->data_updated);
+					// signal that the data was updated
+					parameter->dataUpdated = true;
+					pthread_mutex_unlock  (&parameter->data_protect);
+					pthread_cond_broadcast(&parameter->data_updated);
+				}
 			}
 			else pthread_mutex_unlock(&parameter->data_protect);
         }
-		else if(result > 1) calibrating = false; // exit loop --> terminate function 
+		else if(result > 1) {calibrating = false; continue;}// exit loop --> terminate function 
 
 		pthread_mutex_lock(&parameter->data_protect);
 		if(parameter->data->next_calibration_step)
@@ -564,7 +593,7 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 			parameter->calibration->step++;
 			if(parameter->calibration->step > 5)
 			{
-				parameter->calibration->step = 0;
+				parameter->calibration->step = X_MAX;
 				switch(parameter->calibration->sensor)
 				{
 					case ACC:
@@ -581,9 +610,12 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 			parameter->data->next_calibration_step = false; 
 		}
 		pthread_mutex_unlock(&parameter->data_protect);
+		razorSleep(40);
     }
 
+
 	// exporting calibration data
+	// TODO probably not needed anymore since razorAHRS firmware is able to store data
 	if(calibration_successful)
 	{
 		FILE *fp;
@@ -619,6 +651,8 @@ void* calibratingRazor ( struct thread_parameter *parameter )
 	}
 
 	pthread_mutex_unlock(&parameter->setup_protect);		
+
+	printf("EXIT calibration\r\n");
 
     razorAHRS_quit(parameter);
     pthread_exit(NULL);
